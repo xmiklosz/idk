@@ -1,5 +1,7 @@
 # Compiled binaries
 scheduling
+scheduling_basic
+scheduling_disjoint
 
 # C++ compiled files
 *.o
