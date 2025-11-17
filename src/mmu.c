@@ -42,12 +42,6 @@ int get_physical_address(uint16_t virtual_address, uint16_t *physical_address) {
 
     tPageTableEntry *entry = &current_page_table[page_number];
 
-    // Check if page is accessible (highest priority)
-    // rwx=000 means segmentation fault regardless of presence
-    if (entry->r == 0 && entry->w == 0 && entry->x == 0) {
-        return -2;  // Segmentation fault
-    }
-
     // Check if page is present
     if (entry->p_bit == 0) {
         return -1;  // Page fault
