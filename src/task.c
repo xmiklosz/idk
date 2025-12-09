@@ -32,15 +32,22 @@ int init_taskMgr() {
         return -1;  // Check RAM is initialized
     }
 
+    // Calculate how many frames we need for tTaskMgr
+    size_t mgr_size = sizeof(tTaskMgr);
+    uint16_t frames_needed = (mgr_size + ram->page_size - 1) / ram->page_size;
+    printf("[TASK DEBUG] init_taskMgr: tTaskMgr size=%zu bytes, page_size=%u, frames_needed=%u\n",
+           mgr_size, ram->page_size, frames_needed);
+
     uint16_t frame_id;
-    int err = falloc(&frame_id, 1);
+    int err = falloc(&frame_id, frames_needed);
     if (err != 0) {
         printf("[TASK DEBUG] init_taskMgr: falloc failed with %d, returning -1\n", err);
         return -1;
     }
 
     g_taskMgr = (tTaskMgr *)((uint8_t *)ram + frame_id * ram->page_size);
-    printf("[TASK DEBUG] init_taskMgr: Allocated frame %u, g_taskMgr=%p\n", frame_id, (void*)g_taskMgr);
+    printf("[TASK DEBUG] init_taskMgr: Allocated %u frames starting at frame %u, g_taskMgr=%p\n",
+           frames_needed, frame_id, (void*)g_taskMgr);
 
     // Initialize manager
     for (int i = 0; i < TASK_TABLE_SIZE; i++) {
@@ -74,14 +81,18 @@ void destroy_taskMgr() {
         }
     }
 
-    // Free the frame where task manager is stored
+    // Free all frames where task manager is stored
     uintptr_t mgr_addr = (uintptr_t)g_taskMgr;
     uintptr_t ram_base = (uintptr_t)get_ram_state();
     uint16_t page_size = get_ram_state()->page_size;
 
     uint16_t frame_id = (mgr_addr - ram_base) / page_size;
 
-    ffree(frame_id, 1);
+    // Calculate how many frames were allocated
+    size_t mgr_size = sizeof(tTaskMgr);
+    uint16_t frames_needed = (mgr_size + page_size - 1) / page_size;
+
+    ffree(frame_id, frames_needed);
 
     g_taskMgr = NULL;
 }
