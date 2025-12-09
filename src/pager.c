@@ -15,12 +15,20 @@ static int nru_class(const tPageTableEntry *e) {
 }
 
 int page_fault(int pid, uint16_t virtual_address) {
+    printf("[PAGER DEBUG] page_fault: pid=%d, virt_addr=%u\n", pid, virtual_address);
+
     // 1) find task
     tTaskStruct *task = get_task_struct(pid);
-    if (!task) return -1; // Task not found
+    if (!task) {
+        printf("[PAGER DEBUG] page_fault: Task not found, returning -1\n");
+        return -1; // Task not found
+    }
 
     const tRam *ram = get_ram_state();
-    if (!ram) return -1; // RAM not initialized (treat as out of resources)
+    if (!ram) {
+        printf("[PAGER DEBUG] page_fault: RAM not initialized, returning -1\n");
+        return -1; // RAM not initialized (treat as out of resources)
+    }
 
     uint16_t page_size = ram->page_size;
 
@@ -106,12 +114,49 @@ int page_fault(int pid, uint16_t virtual_address) {
         task->page_table[victim_idx].frame_id = 0;
         // free the frame in RAM
         ffree((uint16_t)victim_frame, 1);
+        present_count--; // Update count after eviction
     }
 
     // 10) allocate a frame for the missing page
     uint16_t new_frame;
     int alloc_res = falloc(&new_frame, 1);
+
+    // If allocation failed and we haven't evicted yet, try evicting due to RAM being full
+    if (alloc_res != 0 && !need_evict && present_count > 0) {
+        printf("[PAGER DEBUG] page_fault: Allocation failed, RAM full. Attempting to evict from %d present pages\n", present_count);
+
+        // Find victim using NRU (same logic as before)
+        int best_class = 4;
+        victim_idx = -1;
+        for (int i = 0; i < PAGE_TABLE_SIZE; i++) {
+            if (!task->page_table[i].p_bit) continue; // not in RAM
+            int cls = nru_class(&task->page_table[i]);
+            if (cls < best_class) {
+                best_class = cls;
+                victim_idx = i;
+                if (best_class == 0) break; // can't get better than class 0
+            }
+        }
+
+        if (victim_idx != -1) {
+            printf("[PAGER DEBUG] page_fault: Evicting page %d (NRU class %d) to free frame %d\n",
+                   victim_idx, best_class, task->page_table[victim_idx].frame_id);
+
+            int victim_frame_id = task->page_table[victim_idx].frame_id;
+            task->page_table[victim_idx].p_bit = 0;
+            task->page_table[victim_idx].frame_id = 0;
+            ffree((uint16_t)victim_frame_id, 1);
+
+            // Try allocating again
+            alloc_res = falloc(&new_frame, 1);
+            printf("[PAGER DEBUG] page_fault: After eviction, falloc returned %d\n", alloc_res);
+        } else {
+            printf("[PAGER DEBUG] page_fault: No victim found to evict\n");
+        }
+    }
+
     if (alloc_res != 0) {
+        printf("[PAGER DEBUG] page_fault: Failed to allocate frame, returning -3\n");
         return -3; // out of resources
     }
 
