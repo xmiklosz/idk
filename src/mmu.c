@@ -43,13 +43,6 @@ int get_physical_address(uint16_t virtual_address, uint16_t *physical_address) {
     uint16_t page_offset = virtual_address % page_size;
     printf("[MMU DEBUG] get_physical_address: page_index=%u, page_offset=%u\n", page_index, page_offset);
 
-    // Check if page index is within bounds
-    if (page_index >= PAGE_TABLE_SIZE) {
-        printf("[MMU DEBUG] get_physical_address: Page index %u >= PAGE_TABLE_SIZE %d, returning -2\n",
-               page_index, PAGE_TABLE_SIZE);
-        return -2;  // Segmentation fault (out of virtual address space)
-    }
-
     tPageTableEntry *pte = &g_current_page_table[page_index];
     printf("[MMU DEBUG] get_physical_address: pte r=%u w=%u x=%u p_bit=%u r_bit=%u m_bit=%u frame_id=%u\n",
            pte->r, pte->w, pte->x, pte->p_bit, pte->r_bit, pte->m_bit, pte->frame_id);
@@ -94,12 +87,6 @@ int fetch_instruction(uint16_t virtual_address, uint8_t *data) {
     uint16_t page_size = ram->page_size;
     uint16_t page_index = virtual_address / page_size;
     printf("[MMU DEBUG] fetch_instruction: page_size=%u, page_index=%u\n", page_size, page_index);
-
-    // Check bounds
-    if (page_index >= PAGE_TABLE_SIZE) {
-        printf("[MMU DEBUG] fetch_instruction: Page index out of bounds, returning -2\n");
-        return -2;  // Segmentation fault
-    }
 
     tPageTableEntry *pte = &g_current_page_table[page_index];
     printf("[MMU DEBUG] fetch_instruction: pte r=%u w=%u x=%u p_bit=%u frame_id=%u\n",
@@ -164,12 +151,6 @@ int load_data(uint16_t virtual_address, uint8_t *data) {
     uint16_t page_index = virtual_address / page_size;
     printf("[MMU DEBUG] load_data: page_size=%u, page_index=%u\n", page_size, page_index);
 
-    // Check bounds
-    if (page_index >= PAGE_TABLE_SIZE) {
-        printf("[MMU DEBUG] load_data: Page index out of bounds, returning -2\n");
-        return -2;  // Segmentation fault
-    }
-
     tPageTableEntry *pte = &g_current_page_table[page_index];
     printf("[MMU DEBUG] load_data: pte r=%u w=%u x=%u p_bit=%u frame_id=%u\n",
            pte->r, pte->w, pte->x, pte->p_bit, pte->frame_id);
@@ -232,12 +213,6 @@ int store_data(uint16_t virtual_address, uint8_t data) {
     uint16_t page_size = ram->page_size;
     uint16_t page_index = virtual_address / page_size;
     printf("[MMU DEBUG] store_data: page_size=%u, page_index=%u\n", page_size, page_index);
-
-    // Check bounds
-    if (page_index >= PAGE_TABLE_SIZE) {
-        printf("[MMU DEBUG] store_data: Page index out of bounds, returning -2\n");
-        return -2;  // Segmentation fault
-    }
 
     tPageTableEntry *pte = &g_current_page_table[page_index];
     printf("[MMU DEBUG] store_data: pte r=%u w=%u x=%u p_bit=%u frame_id=%u\n",
