@@ -1,6 +1,7 @@
 #include "task.h"
 #include "ram.h"
 #include <string.h>
+#include <stdio.h>
 
 // -----------------------------------------------------------------------------
 // Internal static storage
@@ -24,14 +25,22 @@ static int find_free_slot() {
 // Initialize task manager — allocates RAM frames
 // -----------------------------------------------------------------------------
 int init_taskMgr() {
+    printf("[TASK DEBUG] init_taskMgr: Starting initialization\n");
     const tRam *ram = get_ram_state();
-    if (!ram) return -1;  // Check RAM is initialized
+    if (!ram) {
+        printf("[TASK DEBUG] init_taskMgr: RAM not initialized, returning -1\n");
+        return -1;  // Check RAM is initialized
+    }
 
     uint16_t frame_id;
     int err = falloc(&frame_id, 1);
-    if (err != 0) return -1;
+    if (err != 0) {
+        printf("[TASK DEBUG] init_taskMgr: falloc failed with %d, returning -1\n", err);
+        return -1;
+    }
 
     g_taskMgr = (tTaskMgr *)((uint8_t *)ram + frame_id * ram->page_size);
+    printf("[TASK DEBUG] init_taskMgr: Allocated frame %u, g_taskMgr=%p\n", frame_id, (void*)g_taskMgr);
 
     // Initialize manager
     for (int i = 0; i < TASK_TABLE_SIZE; i++) {
@@ -42,6 +51,7 @@ int init_taskMgr() {
     }
 
     g_nextPID = 1;
+    printf("[TASK DEBUG] init_taskMgr: Success, returning 0\n");
     return 0;
 }
 
@@ -80,11 +90,23 @@ void destroy_taskMgr() {
 // Create task
 // -----------------------------------------------------------------------------
 int create_task(const tPageTableEntry *page_table, uint8_t max_frames, void *address_space) {
-    if (!g_taskMgr) return -3;
-    if (!page_table || !address_space) return -2;
+    printf("[TASK DEBUG] create_task: g_taskMgr=%p, max_frames=%u, address_space=%p\n",
+           (void*)g_taskMgr, max_frames, address_space);
+
+    if (!g_taskMgr) {
+        printf("[TASK DEBUG] create_task: Task manager not initialized, returning -3\n");
+        return -3;
+    }
+    if (!page_table || !address_space) {
+        printf("[TASK DEBUG] create_task: Invalid parameters, returning -2\n");
+        return -2;
+    }
 
     int slot = find_free_slot();
-    if (slot < 0) return -1;
+    if (slot < 0) {
+        printf("[TASK DEBUG] create_task: No free slots, returning -1\n");
+        return -1;
+    }
 
     tTaskStruct *task = &g_taskMgr->tasks[slot];
 
@@ -96,6 +118,7 @@ int create_task(const tPageTableEntry *page_table, uint8_t max_frames, void *add
     // Copy page table
     memcpy(task->page_table, page_table, sizeof(task->page_table));
 
+    printf("[TASK DEBUG] create_task: Created task with PID=%d in slot %d\n", task->pid, slot);
     return task->pid;
 }
 
@@ -140,11 +163,27 @@ const tTaskMgr *get_task_mgr() {
 // Get task by PID
 // -----------------------------------------------------------------------------
 tTaskStruct *get_task_struct(int pid) {
-    if (!g_taskMgr) return NULL;
+    printf("[TASK DEBUG] get_task_struct: Looking for PID=%d, g_taskMgr=%p\n", pid, (void*)g_taskMgr);
+
+    if (!g_taskMgr) {
+        printf("[TASK DEBUG] get_task_struct: Task manager not initialized, returning NULL\n");
+        return NULL;
+    }
 
     for (int i = 0; i < TASK_TABLE_SIZE; i++) {
-        if (g_taskMgr->tasks[i].pid == pid)
+        if (g_taskMgr->tasks[i].pid == pid) {
+            printf("[TASK DEBUG] get_task_struct: Found task PID=%d at slot %d\n", pid, i);
             return &g_taskMgr->tasks[i];
+        }
     }
+
+    printf("[TASK DEBUG] get_task_struct: Task PID=%d not found. Active PIDs: ", pid);
+    for (int i = 0; i < TASK_TABLE_SIZE; i++) {
+        if (g_taskMgr->tasks[i].pid != -1) {
+            printf("%d ", g_taskMgr->tasks[i].pid);
+        }
+    }
+    printf("\n");
+
     return NULL;
 }
