@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-#define PAGE_TABLE_SIZE 8
+#define PAGE_TABLE_SIZE 16
 
 typedef struct tPageTableEntry
 {
