@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cool Website</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      background: #0f0f13;
+      color: #f0f0f0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2rem;
+    }
+
+    h1 {
+      font-size: clamp(2.5rem, 8vw, 5rem);
+      font-weight: 900;
+      background: linear-gradient(135deg, #7c3aed, #06b6d4, #f59e0b);
+      background-size: 200%;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: shine 3s linear infinite;
+    }
+
+    @keyframes shine {
+      0%   { background-position: 0% 50%; }
+      100% { background-position: 200% 50%; }
+    }
+
+    p {
+      font-size: 1.15rem;
+      color: #888;
+      text-align: center;
+      max-width: 400px;
+    }
+
+    .btn {
+      padding: 0.75rem 2rem;
+      background: linear-gradient(135deg, #7c3aed, #06b6d4);
+      color: #fff;
+      border: none;
+      border-radius: 999px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.15s, filter 0.15s;
+    }
+    .btn:hover { transform: scale(1.05); filter: brightness(1.2); }
+
+    .cards {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .card {
+      background: #1a1a24;
+      border: 1px solid #2a2a3a;
+      border-radius: 16px;
+      padding: 1.5rem 2rem;
+      text-align: center;
+      width: 150px;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    .card:hover { transform: translateY(-6px); border-color: #7c3aed; }
+    .card .icon { font-size: 2rem; margin-bottom: 0.5rem; }
+    .card .label { font-size: 0.85rem; color: #aaa; }
+  </style>
+</head>
+<body>
+
+  <h1>Hello World ✦</h1>
+  <p>A simple, cool website. Nothing more, nothing less.</p>
+
+  <div class="cards">
+    <div class="card"><div class="icon">🚀</div><div class="label">Fast</div></div>
+    <div class="card"><div class="icon">🎨</div><div class="label">Pretty</div></div>
+    <div class="card"><div class="icon">✨</div><div class="label">Simple</div></div>
+  </div>
+
+  <button class="btn" onclick="this.textContent = '🎉 Nice!'">Click me</button>
+
+</body>
+</html>
