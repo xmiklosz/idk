@@ -1,93 +1,1279 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Cool Website</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SocialHub</title>
+<style>
+:root {
+  --bg: #f0f2f5;
+  --card: #ffffff;
+  --nav: #ffffff;
+  --text: #050505;
+  --sub: #65676b;
+  --border: #ced0d4;
+  --hover: #f2f2f2;
+  --blue: #1877f2;
+  --blue-hover: #166fe5;
+  --green: #42b72a;
+  --red: #fa3e3e;
+  --orange: #f7a800;
+  --purple: #a855f7;
+  --shadow: 0 2px 8px rgba(0,0,0,.12);
+  --radius: 10px;
+  --nav-h: 56px;
+}
+body.dark {
+  --bg: #18191a;
+  --card: #242526;
+  --nav: #242526;
+  --text: #e4e6eb;
+  --sub: #b0b3b8;
+  --border: #3e4042;
+  --hover: #3a3b3c;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;min-height:100vh;}
+a{color:inherit;text-decoration:none;}
+button{cursor:pointer;font-family:inherit;}
+input,textarea{font-family:inherit;}
 
-    body {
-      min-height: 100vh;
-      background: #0f0f13;
-      color: #f0f0f0;
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 2rem;
-    }
+/* ── NAVBAR ── */
+#navbar{
+  position:fixed;top:0;left:0;right:0;height:var(--nav-h);
+  background:var(--nav);box-shadow:var(--shadow);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;z-index:1000;
+}
+.nav-left{display:flex;align-items:center;gap:8px;}
+.nav-logo{font-size:1.8rem;font-weight:900;color:var(--blue);letter-spacing:-1px;}
+.nav-search{
+  display:flex;align-items:center;gap:6px;
+  background:var(--hover);border-radius:999px;padding:8px 14px;
+  font-size:0.9rem;color:var(--sub);cursor:text;
+}
+.nav-search input{background:none;border:none;outline:none;color:var(--text);width:180px;font-size:0.9rem;}
+.nav-center{display:flex;gap:2px;}
+.nav-tab{
+  padding:0 28px;height:var(--nav-h);display:flex;align-items:center;justify-content:center;
+  border-bottom:3px solid transparent;color:var(--sub);font-size:1.4rem;
+  transition:all .15s;border-radius:var(--radius);cursor:pointer;position:relative;
+}
+.nav-tab:hover{background:var(--hover);color:var(--blue);}
+.nav-tab.active{color:var(--blue);border-bottom-color:var(--blue);}
+.nav-tab .notif-dot{
+  position:absolute;top:8px;right:20px;
+  background:var(--red);color:#fff;font-size:0.6rem;font-weight:700;
+  border-radius:999px;padding:1px 5px;min-width:16px;text-align:center;
+}
+.nav-right{display:flex;align-items:center;gap:8px;}
+.nav-btn{
+  width:40px;height:40px;border-radius:50%;background:var(--hover);
+  border:none;font-size:1.2rem;display:flex;align-items:center;justify-content:center;
+  transition:background .15s;position:relative;color:var(--text);
+}
+.nav-btn:hover{background:var(--border);}
+.nav-avatar{
+  width:40px;height:40px;border-radius:50%;object-fit:cover;cursor:pointer;
+  background:var(--blue);display:flex;align-items:center;justify-content:center;
+  font-weight:700;color:#fff;font-size:1rem;border:2px solid var(--blue);
+}
 
-    h1 {
-      font-size: clamp(2.5rem, 8vw, 5rem);
-      font-weight: 900;
-      background: linear-gradient(135deg, #7c3aed, #06b6d4, #f59e0b);
-      background-size: 200%;
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      animation: shine 3s linear infinite;
-    }
+/* ── LAYOUT ── */
+#layout{display:flex;padding-top:var(--nav-h);min-height:100vh;}
+#sidebar-left{
+  width:280px;position:fixed;top:var(--nav-h);left:0;bottom:0;
+  overflow-y:auto;padding:8px;scrollbar-width:thin;
+}
+#sidebar-left::-webkit-scrollbar{width:4px;}
+#feed{
+  margin-left:280px;margin-right:340px;
+  max-width:680px;padding:20px 16px;flex:1;
+}
+#sidebar-right{
+  width:340px;position:fixed;top:var(--nav-h);right:0;bottom:0;
+  overflow-y:auto;padding:12px 8px;scrollbar-width:thin;
+}
 
-    @keyframes shine {
-      0%   { background-position: 0% 50%; }
-      100% { background-position: 200% 50%; }
-    }
+/* ── SIDEBAR NAV ITEMS ── */
+.sl-item{
+  display:flex;align-items:center;gap:12px;
+  padding:10px 12px;border-radius:var(--radius);cursor:pointer;
+  transition:background .15s;font-weight:500;
+}
+.sl-item:hover{background:var(--hover);}
+.sl-item .icon{
+  width:36px;height:36px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:1.1rem;
+  background:var(--hover);flex-shrink:0;
+}
+.sl-item .icon.blue{background:#e7f3ff;color:var(--blue);}
+.sl-item .icon.red{background:#ffe7e7;color:var(--red);}
+.sl-item .icon.green{background:#e7ffe7;color:var(--green);}
+.sl-item .icon.orange{background:#fff3e0;color:var(--orange);}
+.sl-item .icon.purple{background:#f3e8ff;color:var(--purple);}
+body.dark .sl-item .icon.blue{background:#263951;}
+body.dark .sl-item .icon.red{background:#3b1f1f;}
+body.dark .sl-item .icon.green{background:#1a3320;}
+body.dark .sl-item .icon.orange{background:#3b2f10;}
+body.dark .sl-item .icon.purple{background:#2d1f45;}
+.sl-divider{height:1px;background:var(--border);margin:8px 4px;}
+.sl-heading{font-size:0.8rem;font-weight:700;color:var(--sub);padding:8px 12px 4px;text-transform:uppercase;letter-spacing:.5px;}
 
-    p {
-      font-size: 1.15rem;
-      color: #888;
-      text-align: center;
-      max-width: 400px;
-    }
+/* ── CARD ── */
+.card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:16px;overflow:hidden;}
 
-    .btn {
-      padding: 0.75rem 2rem;
-      background: linear-gradient(135deg, #7c3aed, #06b6d4);
-      color: #fff;
-      border: none;
-      border-radius: 999px;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: transform 0.15s, filter 0.15s;
-    }
-    .btn:hover { transform: scale(1.05); filter: brightness(1.2); }
+/* ── STORIES ── */
+.stories-row{display:flex;gap:8px;margin-bottom:16px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none;}
+.stories-row::-webkit-scrollbar{display:none;}
+.story{
+  flex-shrink:0;width:110px;height:185px;border-radius:var(--radius);
+  overflow:hidden;position:relative;cursor:pointer;
+  background:linear-gradient(145deg,#1877f2,#42b72a);
+  transition:transform .15s;
+}
+.story:hover{transform:scale(1.03);}
+.story-img{width:100%;height:100%;object-fit:cover;position:absolute;inset:0;}
+.story-gradient{
+  position:absolute;inset:0;
+  background:linear-gradient(to bottom,rgba(0,0,0,.3) 0%,transparent 40%,rgba(0,0,0,.5) 100%);
+}
+.story-avatar{
+  position:absolute;top:10px;left:10px;
+  width:40px;height:40px;border-radius:50%;
+  border:3px solid var(--blue);background:var(--blue);
+  display:flex;align-items:center;justify-content:center;
+  color:#fff;font-weight:700;font-size:.9rem;
+}
+.story-name{
+  position:absolute;bottom:10px;left:0;right:0;
+  text-align:center;color:#fff;font-size:0.8rem;font-weight:600;
+  text-shadow:0 1px 4px rgba(0,0,0,.6);
+}
+.story-add{
+  background:var(--card);border:2px dashed var(--border);
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:14px;gap:6px;
+}
+.story-add .plus-circle{
+  width:40px;height:40px;border-radius:50%;background:var(--blue);
+  display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:1.4rem;font-weight:300;position:absolute;top:calc(50% - 30px);
+}
+.story-add .plus-label{font-size:0.78rem;font-weight:600;color:var(--text);}
 
-    .cards {
-      display: flex;
-      gap: 1rem;
-      flex-wrap: wrap;
-      justify-content: center;
-    }
+/* ── CREATE POST ── */
+.create-post{padding:12px 16px;}
+.create-post-top{display:flex;gap:8px;align-items:center;margin-bottom:10px;}
+.create-post-input{
+  flex:1;background:var(--hover);border:none;border-radius:999px;
+  padding:10px 16px;font-size:0.95rem;color:var(--sub);cursor:pointer;
+  transition:background .15s;
+}
+.create-post-input:hover{background:var(--border);}
+.create-post-divider{height:1px;background:var(--border);margin:0 -16px 10px;}
+.create-post-actions{display:flex;justify-content:space-around;}
+.cp-action{
+  display:flex;align-items:center;gap:6px;padding:8px 16px;
+  border-radius:var(--radius);cursor:pointer;font-weight:600;
+  font-size:0.88rem;color:var(--sub);transition:background .15s;
+}
+.cp-action:hover{background:var(--hover);}
+.cp-action .icon{font-size:1.2rem;}
 
-    .card {
-      background: #1a1a24;
-      border: 1px solid #2a2a3a;
-      border-radius: 16px;
-      padding: 1.5rem 2rem;
-      text-align: center;
-      width: 150px;
-      transition: transform 0.2s, border-color 0.2s;
-    }
-    .card:hover { transform: translateY(-6px); border-color: #7c3aed; }
-    .card .icon { font-size: 2rem; margin-bottom: 0.5rem; }
-    .card .label { font-size: 0.85rem; color: #aaa; }
-  </style>
+/* ── POST ── */
+.post-header{display:flex;align-items:flex-start;padding:12px 16px;gap:10px;}
+.post-avatar{
+  width:40px;height:40px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;color:#fff;font-size:1rem;
+}
+.post-meta{flex:1;}
+.post-author{font-weight:700;font-size:0.95rem;}
+.post-timestamp{font-size:0.78rem;color:var(--sub);}
+.post-body{padding:0 16px 10px;}
+.post-text{line-height:1.5;margin-bottom:10px;}
+.post-image{width:100%;max-height:500px;object-fit:cover;display:block;}
+.post-image-placeholder{
+  width:100%;height:320px;display:flex;align-items:center;justify-content:center;
+  font-size:4rem;
+}
+.post-stats{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:8px 16px;border-bottom:1px solid var(--border);
+  font-size:0.85rem;color:var(--sub);
+}
+.post-reactions-display{display:flex;align-items:center;gap:4px;}
+.reaction-emoji-small{font-size:0.95rem;}
+.post-actions-row{display:flex;padding:4px 8px;}
+.post-action-btn{
+  flex:1;display:flex;align-items:center;justify-content:center;gap:6px;
+  padding:6px 4px;border-radius:var(--radius);border:none;background:none;
+  color:var(--sub);font-size:0.9rem;font-weight:600;cursor:pointer;
+  transition:background .15s;position:relative;
+}
+.post-action-btn:hover{background:var(--hover);color:var(--blue);}
+.post-action-btn.liked{color:var(--blue);}
+.post-action-btn .icon{font-size:1.1rem;}
+
+/* ── REACTION PICKER ── */
+.reaction-picker{
+  position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);
+  background:var(--card);border-radius:999px;padding:6px 10px;
+  box-shadow:0 4px 20px rgba(0,0,0,.25);
+  display:none;flex-direction:row;gap:4px;z-index:100;
+  border:1px solid var(--border);
+}
+.post-action-btn:hover .reaction-picker{display:flex;}
+.reaction-icon{
+  font-size:1.6rem;cursor:pointer;transition:transform .15s;display:inline-block;
+  padding:2px;border-radius:50%;
+}
+.reaction-icon:hover{transform:scale(1.4) translateY(-4px);}
+
+/* ── COMMENTS ── */
+.comments-section{padding:8px 16px 12px;}
+.comment-input-row{display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;}
+.comment-input{
+  flex:1;background:var(--hover);border:none;border-radius:18px;
+  padding:8px 14px;font-size:0.88rem;color:var(--text);outline:none;resize:none;
+  line-height:1.4;
+}
+.comment-input::placeholder{color:var(--sub);}
+.comment{display:flex;gap:8px;margin-bottom:10px;}
+.comment-avatar{
+  width:32px;height:32px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;color:#fff;font-size:.8rem;
+}
+.comment-bubble{background:var(--hover);border-radius:18px;padding:8px 12px;max-width:calc(100% - 44px);}
+.comment-name{font-size:0.82rem;font-weight:700;margin-bottom:2px;}
+.comment-text{font-size:0.88rem;line-height:1.4;}
+.comment-meta{display:flex;gap:10px;padding:2px 4px;font-size:0.78rem;color:var(--sub);}
+.comment-meta span{cursor:pointer;font-weight:600;}
+.comment-meta span:hover{text-decoration:underline;}
+
+/* ── RIGHT SIDEBAR ── */
+.rs-section{margin-bottom:20px;}
+.rs-title{font-size:1rem;font-weight:700;color:var(--sub);margin-bottom:10px;padding:0 4px;}
+.friend-req{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
+.friend-req-avatar{
+  width:60px;height:60px;border-radius:10px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;color:#fff;font-size:1.2rem;
+}
+.friend-req-info{flex:1;}
+.friend-req-name{font-weight:700;font-size:0.9rem;margin-bottom:2px;}
+.friend-req-mutual{font-size:0.78rem;color:var(--sub);margin-bottom:6px;}
+.friend-req-btns{display:flex;gap:6px;}
+.btn-confirm{
+  flex:1;padding:6px;border-radius:6px;border:none;
+  background:var(--blue);color:#fff;font-weight:600;font-size:0.82rem;cursor:pointer;
+  transition:background .15s;
+}
+.btn-confirm:hover{background:var(--blue-hover);}
+.btn-delete{
+  flex:1;padding:6px;border-radius:6px;border:none;
+  background:var(--hover);color:var(--text);font-weight:600;font-size:0.82rem;cursor:pointer;
+  transition:background .15s;
+}
+.btn-delete:hover{background:var(--border);}
+.contact{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:8px;cursor:pointer;transition:background .15s;}
+.contact:hover{background:var(--hover);}
+.contact-avatar{
+  width:36px;height:36px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;color:#fff;font-size:.85rem;position:relative;
+}
+.online-dot{
+  position:absolute;bottom:0;right:0;
+  width:10px;height:10px;border-radius:50%;background:var(--green);
+  border:2px solid var(--card);
+}
+.contact-name{font-size:0.9rem;font-weight:500;}
+
+/* ── MODAL (Create Post) ── */
+.modal-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:2000;
+  display:none;align-items:center;justify-content:center;
+}
+.modal-overlay.show{display:flex;}
+.modal{
+  background:var(--card);border-radius:var(--radius);width:500px;max-width:95vw;
+  box-shadow:0 4px 32px rgba(0,0,0,.4);
+}
+.modal-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 16px;border-bottom:1px solid var(--border);
+}
+.modal-title{font-size:1.1rem;font-weight:700;flex:1;text-align:center;}
+.modal-close{
+  width:34px;height:34px;border-radius:50%;background:var(--hover);border:none;
+  font-size:1.2rem;cursor:pointer;color:var(--text);
+  display:flex;align-items:center;justify-content:center;
+}
+.modal-body{padding:16px;}
+.modal-user-row{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
+.modal-textarea{
+  width:100%;border:none;background:none;outline:none;resize:none;
+  font-size:1.2rem;color:var(--text);line-height:1.5;min-height:120px;
+}
+.modal-textarea::placeholder{color:var(--sub);}
+.modal-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding:8px;border-radius:var(--radius);border:1px solid var(--border);}
+.modal-action{
+  display:flex;align-items:center;gap:4px;padding:6px 10px;border-radius:6px;
+  cursor:pointer;font-size:0.85rem;font-weight:600;color:var(--sub);transition:background .15s;
+}
+.modal-action:hover{background:var(--hover);}
+.modal-footer{padding:12px 16px;}
+.btn-post{
+  width:100%;padding:10px;border-radius:var(--radius);border:none;
+  background:var(--blue);color:#fff;font-size:1rem;font-weight:700;
+  cursor:pointer;transition:background .15s,opacity .15s;
+}
+.btn-post:hover{background:var(--blue-hover);}
+.btn-post:disabled{opacity:.5;cursor:not-allowed;}
+
+/* ── NOTIFICATION DROPDOWN ── */
+.dropdown{
+  position:absolute;top:calc(100% + 8px);right:0;
+  background:var(--card);border-radius:var(--radius);box-shadow:0 4px 20px rgba(0,0,0,.25);
+  width:360px;max-height:480px;overflow-y:auto;z-index:500;
+  border:1px solid var(--border);display:none;
+}
+.dropdown.show{display:block;}
+.dropdown-header{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:12px 16px;font-size:1.1rem;font-weight:700;
+}
+.notif-item{
+  display:flex;align-items:flex-start;gap:10px;padding:10px 16px;
+  cursor:pointer;transition:background .15s;
+}
+.notif-item:hover{background:var(--hover);}
+.notif-item.unread{background:var(--blue)1a;}
+.notif-avatar{
+  width:56px;height:56px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;color:#fff;font-size:1.1rem;
+}
+.notif-emoji{
+  position:absolute;bottom:-4px;right:-4px;
+  width:22px;height:22px;border-radius:50%;background:var(--blue);
+  display:flex;align-items:center;justify-content:center;font-size:.75rem;
+  border:2px solid var(--card);
+}
+.notif-text{flex:1;font-size:0.88rem;line-height:1.4;}
+.notif-time{font-size:0.78rem;color:var(--blue);font-weight:600;}
+.notif-dot-indicator{
+  width:10px;height:10px;border-radius:50%;background:var(--blue);flex-shrink:0;margin-top:18px;
+}
+
+/* ── CHAT WIDGET ── */
+#chat-widget{
+  position:fixed;bottom:0;right:360px;
+  display:flex;gap:8px;align-items:flex-end;padding:8px;z-index:900;
+}
+.chat-bubble{
+  width:56px;height:56px;border-radius:50%;flex-shrink:0;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;color:#fff;font-size:1.1rem;position:relative;
+  box-shadow:0 2px 8px rgba(0,0,0,.3);transition:transform .15s;
+}
+.chat-bubble:hover{transform:scale(1.1);}
+.chat-window{
+  width:300px;background:var(--card);border-radius:12px 12px 0 0;
+  box-shadow:0 4px 20px rgba(0,0,0,.25);overflow:hidden;
+  display:none;flex-direction:column;max-height:380px;
+}
+.chat-window.open{display:flex;}
+.chat-win-header{
+  display:flex;align-items:center;gap:8px;
+  padding:10px 14px;background:var(--card);border-bottom:1px solid var(--border);cursor:pointer;
+}
+.chat-win-name{font-weight:700;font-size:.9rem;flex:1;}
+.chat-messages{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:6px;}
+.chat-msg{
+  padding:7px 12px;border-radius:18px;max-width:75%;font-size:0.85rem;line-height:1.4;word-wrap:break-word;
+}
+.chat-msg.them{background:var(--hover);align-self:flex-start;}
+.chat-msg.me{background:var(--blue);color:#fff;align-self:flex-end;}
+.chat-input-row{display:flex;gap:6px;padding:8px;border-top:1px solid var(--border);}
+.chat-input{
+  flex:1;border:none;background:var(--hover);border-radius:999px;
+  padding:8px 14px;font-size:0.85rem;color:var(--text);outline:none;
+}
+.chat-send{
+  width:32px;height:32px;border-radius:50%;background:var(--blue);border:none;
+  color:#fff;cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;
+}
+
+/* ── BIRTHDAY CARD ── */
+.birthday-card{
+  background:linear-gradient(135deg,#f59e0b,#ef4444);
+  border-radius:var(--radius);padding:14px;color:#fff;margin-bottom:16px;
+}
+.birthday-card .icon{font-size:2rem;margin-bottom:4px;}
+.birthday-card .name{font-weight:700;font-size:.95rem;}
+.birthday-card .sub{font-size:.8rem;opacity:.85;margin-bottom:8px;}
+.birthday-card button{
+  background:rgba(255,255,255,.25);border:none;color:#fff;
+  border-radius:6px;padding:6px 14px;font-weight:600;font-size:.82rem;cursor:pointer;
+}
+.birthday-card button:hover{background:rgba(255,255,255,.35);}
+
+/* ── TRENDING ── */
+.trend-item{
+  display:flex;align-items:center;gap:10px;padding:8px 4px;
+  border-radius:8px;cursor:pointer;transition:background .15s;
+}
+.trend-item:hover{background:var(--hover);}
+.trend-rank{font-size:.75rem;color:var(--sub);width:20px;text-align:center;}
+.trend-info{flex:1;}
+.trend-tag{font-weight:700;font-size:.88rem;}
+.trend-count{font-size:.75rem;color:var(--sub);}
+.trend-icon{font-size:1.2rem;}
+
+/* ── POLL POST ── */
+.poll-option{
+  border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:6px;
+  cursor:pointer;transition:all .15s;position:relative;overflow:hidden;
+}
+.poll-option:hover{border-color:var(--blue);}
+.poll-option.voted{border-color:var(--blue);background:rgba(24,119,242,.08);}
+.poll-fill{
+  position:absolute;inset:0;background:rgba(24,119,242,.1);
+  transition:width .5s ease;
+}
+.poll-label{position:relative;display:flex;justify-content:space-between;align-items:center;}
+.poll-pct{font-size:.82rem;font-weight:600;color:var(--blue);}
+
+/* ── SHARE MODAL ── */
+#share-modal .modal-body{display:flex;flex-direction:column;gap:10px;}
+.share-option{
+  display:flex;align-items:center;gap:12px;padding:10px;
+  border-radius:var(--radius);cursor:pointer;transition:background .15s;
+}
+.share-option:hover{background:var(--hover);}
+.share-option .icon{font-size:1.5rem;}
+.share-option .label{font-weight:600;font-size:.92rem;}
+.share-option .desc{font-size:.78rem;color:var(--sub);}
+
+/* ── TOAST ── */
+#toast{
+  position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);
+  background:#333;color:#fff;padding:10px 20px;border-radius:999px;
+  font-size:.9rem;font-weight:500;z-index:9999;
+  transition:transform .3s ease;pointer-events:none;
+}
+#toast.show{transform:translateX(-50%) translateY(0);}
+
+/* ── BADGE ── */
+.badge{
+  display:inline-flex;align-items:center;gap:4px;
+  background:rgba(24,119,242,.12);color:var(--blue);
+  border-radius:999px;padding:2px 8px;font-size:.75rem;font-weight:600;margin-left:4px;
+}
+
+/* ── SCROLLBAR ── */
+*::-webkit-scrollbar{width:6px;height:6px;}
+*::-webkit-scrollbar-track{background:transparent;}
+*::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+
+/* ── PROFILE DROPDOWN ── */
+#profile-dropdown{
+  position:absolute;top:calc(100% + 8px);right:0;
+  background:var(--card);border-radius:var(--radius);
+  box-shadow:0 4px 20px rgba(0,0,0,.25);
+  width:320px;z-index:500;border:1px solid var(--border);
+  display:none;padding:8px;
+}
+#profile-dropdown.show{display:block;}
+.pd-user{display:flex;align-items:center;gap:10px;padding:8px;border-radius:var(--radius);cursor:pointer;transition:background .15s;margin-bottom:4px;border-bottom:1px solid var(--border);padding-bottom:14px;}
+.pd-user:hover{background:var(--hover);}
+.pd-user-name{font-weight:700;}
+.pd-user-link{font-size:.8rem;color:var(--blue);}
+.pd-item{display:flex;align-items:center;gap:10px;padding:8px;border-radius:8px;cursor:pointer;transition:background .15s;font-size:.9rem;font-weight:500;}
+.pd-item:hover{background:var(--hover);}
+.pd-item .icon{width:36px;height:36px;border-radius:50%;background:var(--hover);display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;}
+
+/* ── RESPONSIVE ── */
+@media(max-width:1200px){
+  #sidebar-right{display:none;}
+  #feed{margin-right:0;max-width:none;}
+}
+@media(max-width:768px){
+  #sidebar-left{display:none;}
+  #feed{margin-left:0;}
+  .nav-center{display:none;}
+  #chat-widget{right:0;}
+}
+</style>
 </head>
 <body>
 
-  <h1>Hello World ✦</h1>
-  <p>A simple, cool website. Nothing more, nothing less.</p>
+<!-- TOAST -->
+<div id="toast"></div>
 
-  <div class="cards">
-    <div class="card"><div class="icon">🚀</div><div class="label">Fast</div></div>
-    <div class="card"><div class="icon">🎨</div><div class="label">Pretty</div></div>
-    <div class="card"><div class="icon">✨</div><div class="label">Simple</div></div>
+<!-- NAVBAR -->
+<nav id="navbar">
+  <div class="nav-left">
+    <div class="nav-logo">S</div>
+    <div class="nav-search">
+      <span>🔍</span>
+      <input type="text" placeholder="Search SocialHub..." id="search-input" oninput="handleSearch(this.value)"/>
+    </div>
   </div>
+  <div class="nav-center">
+    <div class="nav-tab active" onclick="setTab(this)" title="Home">🏠</div>
+    <div class="nav-tab" onclick="setTab(this)" title="Watch">📺</div>
+    <div class="nav-tab" onclick="setTab(this)" title="Marketplace">🛒</div>
+    <div class="nav-tab" onclick="setTab(this)" title="Groups">👥</div>
+    <div class="nav-tab" onclick="setTab(this)" title="Gaming">🎮</div>
+  </div>
+  <div class="nav-right">
+    <div style="position:relative">
+      <button class="nav-btn" title="Menu" onclick="toggleDropdown('profile-dropdown')">⊞</button>
+    </div>
+    <div style="position:relative">
+      <button class="nav-btn" title="Messenger" onclick="toggleChatWindow()">💬</button>
+    </div>
+    <div style="position:relative">
+      <button class="nav-btn" title="Notifications" id="notif-btn" onclick="toggleDropdown('notif-dropdown')">🔔
+        <span style="position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;background:var(--red);border:2px solid var(--nav)"></span>
+      </button>
+      <div class="dropdown" id="notif-dropdown">
+        <div class="dropdown-header">
+          <span>Notifications</span>
+          <span style="font-size:.82rem;color:var(--blue);cursor:pointer;font-weight:500">Mark all read</span>
+        </div>
+        <div id="notif-list"></div>
+      </div>
+    </div>
+    <div style="position:relative">
+      <div class="nav-avatar" onclick="toggleDropdown('profile-dropdown')" id="my-avatar">ME</div>
+      <div id="profile-dropdown">
+        <div class="pd-user">
+          <div class="nav-avatar" style="width:56px;height:56px;font-size:1.3rem">ME</div>
+          <div><div class="pd-user-name">Me</div><div class="pd-user-link">See your profile</div></div>
+        </div>
+        <div class="pd-item" onclick="showToast('Settings coming soon!')"><div class="icon">⚙️</div>Settings &amp; privacy</div>
+        <div class="pd-item" onclick="showToast('Help center coming soon!')"><div class="icon">❓</div>Help &amp; support</div>
+        <div class="pd-item" onclick="toggleDark()"><div class="icon" id="dark-icon">🌙</div><span id="dark-label">Dark mode</span></div>
+        <div class="pd-item" onclick="showToast('Logged out!')"><div class="icon">🚪</div>Log out</div>
+      </div>
+    </div>
+  </div>
+</nav>
 
-  <button class="btn" onclick="this.textContent = '🎉 Nice!'">Click me</button>
+<!-- LAYOUT -->
+<div id="layout">
 
+  <!-- LEFT SIDEBAR -->
+  <aside id="sidebar-left">
+    <div class="sl-item" onclick="showToast('Profile page!')">
+      <div class="nav-avatar icon" style="background:var(--blue);">ME</div>
+      <span style="font-weight:700">Me</span>
+    </div>
+    <div class="sl-item" onclick="showToast('Friends page!')"><div class="icon blue">👥</div>Friends</div>
+    <div class="sl-item" onclick="showToast('Groups page!')"><div class="icon green">🌐</div>Groups</div>
+    <div class="sl-item" onclick="showToast('Marketplace!')"><div class="icon orange">🛒</div>Marketplace</div>
+    <div class="sl-item" onclick="showToast('Watch videos!')"><div class="icon red">📺</div>Watch</div>
+    <div class="sl-item" onclick="showToast('Memories!')"><div class="icon purple">🕐</div>Memories</div>
+    <div class="sl-item" onclick="showToast('Saved!')"><div class="icon orange">🔖</div>Saved</div>
+    <div class="sl-item" onclick="showToast('Events!')"><div class="icon red">📅</div>Events</div>
+    <div class="sl-item" onclick="showToast('Gaming!')"><div class="icon purple">🎮</div>Gaming</div>
+    <div class="sl-divider"></div>
+    <div class="sl-heading">Your shortcuts</div>
+    <div class="sl-item" onclick="showToast('Dev Community!')"><div class="icon blue">💻</div>Dev Community<span class="badge">12</span></div>
+    <div class="sl-item" onclick="showToast('Photography Club!')"><div class="icon orange">📷</div>Photography Club</div>
+    <div class="sl-item" onclick="showToast('Book Club!')"><div class="icon green">📚</div>Book Club<span class="badge">3</span></div>
+    <div class="sl-divider"></div>
+    <div class="sl-heading">Explore</div>
+    <div class="sl-item" onclick="showToast('Crisis helpline!')"><div class="icon red">❤️</div>Crisis helpline info</div>
+    <div class="sl-item" onclick="showToast('Local emergency!')"><div class="icon orange">🚨</div>Local emergency info</div>
+  </aside>
+
+  <!-- MAIN FEED -->
+  <main id="feed">
+
+    <!-- STORIES -->
+    <div class="stories-row" id="stories-row"></div>
+
+    <!-- CREATE POST CARD -->
+    <div class="card create-post">
+      <div class="create-post-top">
+        <div class="nav-avatar" style="width:42px;height:42px">ME</div>
+        <div class="create-post-input" onclick="openPostModal()">What's on your mind?</div>
+      </div>
+      <div class="create-post-divider"></div>
+      <div class="create-post-actions">
+        <div class="cp-action" onclick="openPostModal()"><span class="icon">📹</span>Live video</div>
+        <div class="cp-action" onclick="openPostModal()"><span class="icon">🖼️</span>Photo/Video</div>
+        <div class="cp-action" onclick="openPostModal()"><span class="icon">😊</span>Feeling/Activity</div>
+      </div>
+    </div>
+
+    <!-- POSTS FEED -->
+    <div id="posts-feed"></div>
+
+    <!-- LOAD MORE -->
+    <div style="text-align:center;padding:20px;">
+      <button class="btn-confirm" style="width:180px;border-radius:999px" onclick="loadMorePosts()">Load more posts</button>
+    </div>
+  </main>
+
+  <!-- RIGHT SIDEBAR -->
+  <aside id="sidebar-right">
+
+    <!-- BIRTHDAY -->
+    <div class="birthday-card">
+      <div class="icon">🎂</div>
+      <div class="name">Sarah Johnson's birthday today!</div>
+      <div class="sub">Don't forget to wish her well</div>
+      <button onclick="showToast('Birthday wish sent to Sarah! 🎂')">Send wish</button>
+    </div>
+
+    <!-- FRIEND REQUESTS -->
+    <div class="rs-section">
+      <div class="rs-title">Friend Requests <span style="color:var(--blue)">(3)</span></div>
+      <div id="friend-requests"></div>
+    </div>
+
+    <!-- CONTACTS -->
+    <div class="rs-section">
+      <div class="rs-title">Contacts</div>
+      <div id="contacts-list"></div>
+    </div>
+
+    <!-- TRENDING -->
+    <div class="rs-section">
+      <div class="rs-title">Trending now</div>
+      <div id="trending-list"></div>
+    </div>
+  </aside>
+</div>
+
+<!-- CREATE POST MODAL -->
+<div class="modal-overlay" id="post-modal" onclick="closeModalOutside(event,'post-modal')">
+  <div class="modal">
+    <div class="modal-header">
+      <div style="width:34px"></div>
+      <div class="modal-title">Create post</div>
+      <button class="modal-close" onclick="closeModal('post-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-user-row">
+        <div class="nav-avatar" style="width:42px;height:42px">ME</div>
+        <div>
+          <div style="font-weight:700">Me</div>
+          <div style="font-size:.78rem;background:var(--hover);padding:2px 8px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin-top:2px;">👥 Friends ▾</div>
+        </div>
+      </div>
+      <textarea class="modal-textarea" id="post-textarea" placeholder="What's on your mind?" oninput="checkPostBtn()"></textarea>
+      <div class="modal-actions">
+        <div class="modal-action" onclick="appendToPost('📷 Photo')"><span>🖼️</span>Photo/Video</div>
+        <div class="modal-action" onclick="appendToPost('📍 Location: ')"><span>📍</span>Check in</div>
+        <div class="modal-action" onclick="appendToPost('😊 Feeling happy')"><span>😊</span>Feeling</div>
+        <div class="modal-action" onclick="appendToPost('🗳️ [POLL]')"><span>🗳️</span>Poll</div>
+        <div class="modal-action" onclick="appendToPost('🔴 Going live now!')"><span>🎥</span>Live</div>
+        <div class="modal-action" onclick="showToast('More options coming soon!')"><span>➕</span>More</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-post" id="post-btn" disabled onclick="submitPost()">Post</button>
+    </div>
+  </div>
+</div>
+
+<!-- SHARE MODAL -->
+<div class="modal-overlay" id="share-modal" onclick="closeModalOutside(event,'share-modal')">
+  <div class="modal">
+    <div class="modal-header">
+      <div style="width:34px"></div>
+      <div class="modal-title">Share post</div>
+      <button class="modal-close" onclick="closeModal('share-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="share-option" onclick="shareAction('Share to Feed')"><span class="icon">📰</span><div><div class="label">Share now (Friends)</div><div class="desc">Share instantly to your timeline</div></div></div>
+      <div class="share-option" onclick="shareAction('Share to Story')"><span class="icon">📖</span><div><div class="label">Share to Story</div><div class="desc">Visible for 24 hours</div></div></div>
+      <div class="share-option" onclick="shareAction('Send in Messenger')"><span class="icon">💬</span><div><div class="label">Send in Messenger</div><div class="desc">Send as a private message</div></div></div>
+      <div class="share-option" onclick="shareAction('Share to Group')"><span class="icon">👥</span><div><div class="label">Share to Group</div><div class="desc">Post in one of your groups</div></div></div>
+      <div class="share-option" onclick="copyLink()"><span class="icon">🔗</span><div><div class="label">Copy link</div><div class="desc">Copy post link to clipboard</div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- CHAT WIDGET -->
+<div id="chat-widget">
+  <div id="chat-window" class="chat-window">
+    <div class="chat-win-header" onclick="toggleChatWindow()">
+      <div class="contact-avatar" id="chat-win-avatar" style="width:32px;height:32px;font-size:.8rem;background:#e74c3c"></div>
+      <span class="chat-win-name" id="chat-win-name">Chat</span>
+      <span>✕</span>
+    </div>
+    <div class="chat-messages" id="chat-messages"></div>
+    <div class="chat-input-row">
+      <input class="chat-input" id="chat-input" placeholder="Aa" onkeydown="chatKeydown(event)"/>
+      <button class="chat-send" onclick="sendChatMsg()">➤</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── DATA ──
+const ME = {name:'Me', initials:'ME', color:'#1877f2'};
+
+const USERS = [
+  {id:1, name:'Alex Turner',    initials:'AT', color:'#e74c3c'},
+  {id:2, name:'Maria Garcia',   initials:'MG', color:'#9b59b6'},
+  {id:3, name:'James Wilson',   initials:'JW', color:'#2ecc71'},
+  {id:4, name:'Priya Sharma',   initials:'PS', color:'#e67e22'},
+  {id:5, name:'Chris Lee',      initials:'CL', color:'#1abc9c'},
+  {id:6, name:'Nina Patel',     initials:'NP', color:'#e91e63'},
+  {id:7, name:'Omar Hassan',    initials:'OH', color:'#3498db'},
+  {id:8, name:'Emily Chen',     initials:'EC', color:'#f39c12'},
+];
+
+const POST_TEMPLATES = [
+  {
+    uid:1, text:'Just finished a 10km run this morning! 🏃‍♂️ Feeling absolutely amazing. Who else is into running? Drop your best running tips below!',
+    time:'2 min ago', type:'text',
+    likes:142, comments:[
+      {uid:2, text:'That is incredible! I just started running last month 🙌', time:'1 min ago'},
+      {uid:3, text:'Keep it up! Running changed my life honestly.', time:'just now'},
+    ]
+  },
+  {
+    uid:2, text:'Made homemade pasta from scratch for the first time! 🍝 Took 3 hours but totally worth it.',
+    time:'15 min ago', type:'image', emoji:'🍝', bg:'linear-gradient(135deg,#f093fb,#f5576c)',
+    likes:89, comments:[
+      {uid:5, text:'YUMMM that looks incredible!! Recipe?? 😍', time:'10 min ago'},
+    ]
+  },
+  {
+    uid:3, text:'Quick question for the community — which programming language should I learn in 2026?',
+    time:'1 hr ago', type:'poll',
+    pollOptions:['Python 🐍', 'JavaScript / TypeScript', 'Rust 🦀', 'Go 🐹'],
+    pollVotes:[312, 287, 198, 145],
+    likes:54, comments:[]
+  },
+  {
+    uid:4, text:'Sunset from my apartment tonight 🌅 No filter. Sometimes life is just breathtakingly beautiful.',
+    time:'3 hrs ago', type:'image', emoji:'🌅', bg:'linear-gradient(135deg,#f7971e,#ffd200)',
+    likes:436, comments:[
+      {uid:7, text:'Stunning!! Where do you live?', time:'2 hrs ago'},
+      {uid:1, text:'Nature never disappoints 😍', time:'1 hr ago'},
+      {uid:6, text:'No filter??? I can\'t believe it!', time:'45 min ago'},
+    ]
+  },
+  {
+    uid:5, text:'PSA: If you\'re feeling overwhelmed today, take a deep breath. You are doing better than you think. 💙 Share this with someone who needs to hear it.',
+    time:'5 hrs ago', type:'text',
+    likes:1204, comments:[
+      {uid:2, text:'Needed this today. Thank you ❤️', time:'4 hrs ago'},
+      {uid:8, text:'Sharing this right now!', time:'3 hrs ago'},
+    ]
+  },
+  {
+    uid:6, text:'Just got promoted to Senior Engineer! 🎉 Three years of hard work and late nights finally paid off. Never give up on your dreams!',
+    time:'8 hrs ago', type:'text',
+    likes:892, comments:[
+      {uid:3, text:'Congratulations!! So well deserved 🎊', time:'7 hrs ago'},
+      {uid:4, text:'That is amazing! You worked so hard for this!', time:'6 hrs ago'},
+    ]
+  },
+  {
+    uid:7, text:'Spotted a double rainbow on my morning walk 🌈🌈 The universe is showing off today.',
+    time:'12 hrs ago', type:'image', emoji:'🌈', bg:'linear-gradient(135deg,#a18cd1,#fbc2eb)',
+    likes:673, comments:[]
+  },
+];
+
+const EXTRA_POSTS = [
+  {uid:8, text:'Book recommendation of the week: "The Midnight Library" by Matt Haig. 📚 I finished it in one sitting. Absolutely life-changing.',
+   time:'1 day ago', type:'text', likes:234, comments:[{uid:1,text:'One of my favorites!',time:'23 hrs ago'}]},
+  {uid:1, text:'Coffee shop vibes ☕ Working remotely has its perks.',
+   time:'1 day ago', type:'image', emoji:'☕', bg:'linear-gradient(135deg,#5c3317,#c47524)',
+   likes:167, comments:[]},
+  {uid:3, text:'Started learning guitar today 🎸 My fingers hurt already but I am not giving up!',
+   time:'2 days ago', type:'text', likes:98, comments:[{uid:5,text:'Welcome to the club!',time:'1 day ago'}]},
+];
+
+const STORIES_DATA = [
+  {uid:1, emoji:'🏃', bg:'linear-gradient(135deg,#e74c3c,#c0392b)'},
+  {uid:2, emoji:'🍝', bg:'linear-gradient(135deg,#9b59b6,#8e44ad)'},
+  {uid:3, emoji:'🌅', bg:'linear-gradient(135deg,#f7971e,#ffd200)'},
+  {uid:4, emoji:'🌈', bg:'linear-gradient(135deg,#a18cd1,#fbc2eb)'},
+  {uid:5, emoji:'💙', bg:'linear-gradient(135deg,#1abc9c,#2ecc71)'},
+];
+
+const NOTIFICATIONS = [
+  {uid:1, text:'<b>Alex Turner</b> reacted ❤️ to your post about your morning run.', time:'2 min ago', emoji:'❤️', unread:true},
+  {uid:2, text:'<b>Maria Garcia</b> commented on your photo: "Stunning view!!"', time:'15 min ago', emoji:'💬', unread:true},
+  {uid:3, text:'<b>James Wilson</b> and <b>12 others</b> liked your post.', time:'1 hr ago', emoji:'👍', unread:true},
+  {uid:4, text:'<b>Priya Sharma</b> sent you a friend request.', time:'3 hrs ago', emoji:'👤', unread:false},
+  {uid:5, text:'<b>Chris Lee</b> tagged you in a photo.', time:'5 hrs ago', emoji:'🏷️', unread:false},
+  {uid:6, text:'<b>Nina Patel</b> shared your post.', time:'8 hrs ago', emoji:'🔁', unread:false},
+  {uid:7, text:'Your post reached <b>500 people!</b> Boost it to reach more.', time:'1 day ago', emoji:'📈', unread:false},
+];
+
+const FRIEND_REQS = [
+  {uid:4, mutual:'15 mutual friends'},
+  {uid:6, mutual:'8 mutual friends'},
+  {uid:8, mutual:'3 mutual friends'},
+];
+
+const CONTACTS = [
+  {uid:1, online:true},{uid:2, online:true},{uid:3, online:false},
+  {uid:5, online:true},{uid:7, online:true},{uid:8, online:false},
+];
+
+const TRENDING = [
+  {tag:'#WebDev2026', count:'42.3K posts', icon:'💻'},
+  {tag:'#ClimateAction', count:'38.1K posts', icon:'🌍'},
+  {tag:'#RunningCommunity', count:'21.7K posts', icon:'🏃'},
+  {tag:'#AIArt', count:'19.4K posts', icon:'🤖'},
+  {tag:'#BookClub', count:'12.9K posts', icon:'📚'},
+];
+
+const CHAT_HISTORY = {
+  1: [
+    {me:false, text:'Hey! Saw your running post, super inspiring!'},
+    {me:true,  text:'Thanks man! You should join me sometime 😄'},
+    {me:false, text:'Definitely! What time do you usually go?'},
+  ],
+  2: [
+    {me:false, text:'That pasta looked AMAZING 😍'},
+    {me:true,  text:'Haha thank you! I can share the recipe!'},
+  ],
+};
+
+// ── STATE ──
+let postStates = {};
+let pollVoted = {};
+let activeChatUid = 1;
+let darkMode = false;
+let postsLoaded = POST_TEMPLATES.length;
+
+// ── UTILS ──
+function getUser(uid){return USERS.find(u=>u.id===uid)||ME;}
+
+function avatar(uid,size=40,extraStyle=''){
+  const u = typeof uid==='object'? uid : getUser(uid);
+  return `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${u.color};
+    display:flex;align-items:center;justify-content:center;
+    color:#fff;font-weight:700;font-size:${Math.round(size*0.35)}px;flex-shrink:0;${extraStyle}">${u.initials}</div>`;
+}
+
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2500);
+}
+
+function toggleDark(){
+  darkMode=!darkMode;
+  document.body.classList.toggle('dark',darkMode);
+  document.getElementById('dark-icon').textContent=darkMode?'☀️':'🌙';
+  document.getElementById('dark-label').textContent=darkMode?'Light mode':'Dark mode';
+}
+
+function setTab(el){
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+}
+
+function toggleDropdown(id){
+  document.querySelectorAll('.dropdown, #profile-dropdown').forEach(d=>{
+    if(d.id!==id) d.classList.remove('show');
+  });
+  document.getElementById(id).classList.toggle('show');
+}
+
+document.addEventListener('click',function(e){
+  if(!e.target.closest('#notif-btn') && !e.target.closest('#notif-dropdown'))
+    document.getElementById('notif-dropdown').classList.remove('show');
+  if(!e.target.closest('.nav-avatar') && !e.target.closest('#profile-dropdown') && !e.target.closest('.nav-btn'))
+    document.getElementById('profile-dropdown').classList.remove('show');
+});
+
+// ── MODALS ──
+function openPostModal(){document.getElementById('post-modal').classList.add('show');}
+function closeModal(id){document.getElementById(id).classList.remove('show');}
+function closeModalOutside(e,id){if(e.target.id===id)closeModal(id);}
+function checkPostBtn(){
+  const v=document.getElementById('post-textarea').value.trim();
+  document.getElementById('post-btn').disabled=!v;
+}
+function appendToPost(text){
+  const ta=document.getElementById('post-textarea');
+  ta.value=(ta.value?ta.value+'\n':'')+text;
+  ta.focus(); checkPostBtn();
+}
+function submitPost(){
+  const text=document.getElementById('post-textarea').value.trim();
+  if(!text)return;
+  const post={uid:'me', text, time:'Just now', type:'text', likes:0, comments:[]};
+  prependPost(post);
+  document.getElementById('post-textarea').value='';
+  document.getElementById('post-btn').disabled=true;
+  closeModal('post-modal');
+  showToast('Post shared with your friends!');
+}
+
+// ── SHARE ──
+function openShare(){document.getElementById('share-modal').classList.add('show');}
+function shareAction(type){closeModal('share-modal'); showToast(type+' — done!');}
+function copyLink(){
+  navigator.clipboard?.writeText(window.location.href).catch(()=>{});
+  closeModal('share-modal'); showToast('Link copied to clipboard!');
+}
+
+// ── SEARCH ──
+let searchTimeout;
+function handleSearch(val){
+  clearTimeout(searchTimeout);
+  if(!val.trim()) return;
+  searchTimeout=setTimeout(()=>showToast(`Searching for "${val}"...`),600);
+}
+
+// ── STORIES ──
+function renderStories(){
+  const row=document.getElementById('stories-row');
+  // Add story button
+  let html=`<div class="story story-add" onclick="showToast('Story creation coming soon!')">
+    <div style="position:absolute;inset:0;background:var(--card)"></div>
+    <div class="plus-circle">+</div>
+    <div class="plus-label" style="position:relative">Add Story</div>
+  </div>`;
+  STORIES_DATA.forEach(s=>{
+    const u=getUser(s.uid);
+    html+=`<div class="story" onclick="viewStory(${s.uid})" style="background:${s.bg}">
+      <div class="story-gradient"></div>
+      <div class="story-avatar">${u.initials}</div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:2.5rem">${s.emoji}</div>
+      <div class="story-name">${u.name.split(' ')[0]}</div>
+    </div>`;
+  });
+  row.innerHTML=html;
+}
+
+function viewStory(uid){
+  const u=getUser(uid);
+  showToast(`Viewing ${u.name}'s story...`);
+}
+
+// ── NOTIFICATIONS ──
+function renderNotifications(){
+  const list=document.getElementById('notif-list');
+  list.innerHTML=NOTIFICATIONS.map(n=>{
+    const u=getUser(n.uid);
+    return `<div class="notif-item${n.unread?' unread':''}" onclick="showToast('Opening notification...')">
+      <div style="position:relative">
+        ${avatar(n.uid,56)}
+        <div class="notif-emoji">${n.emoji}</div>
+      </div>
+      <div class="notif-text">
+        <div>${n.text}</div>
+        <div class="notif-time">${n.time}</div>
+      </div>
+      ${n.unread?'<div class="notif-dot-indicator"></div>':''}
+    </div>`;
+  }).join('');
+}
+
+// ── FRIEND REQUESTS ──
+function renderFriendRequests(){
+  const el=document.getElementById('friend-requests');
+  el.innerHTML=FRIEND_REQS.map((r,i)=>{
+    const u=getUser(r.uid);
+    return `<div class="friend-req" id="freq-${i}">
+      <div class="friend-req-avatar" style="background:${u.color}">${u.initials}</div>
+      <div class="friend-req-info">
+        <div class="friend-req-name">${u.name}</div>
+        <div class="friend-req-mutual">👥 ${r.mutual}</div>
+        <div class="friend-req-btns">
+          <button class="btn-confirm" onclick="confirmFriend(${i},'${u.name}')">Confirm</button>
+          <button class="btn-delete" onclick="deleteFriend(${i})">Delete</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+function confirmFriend(i,name){
+  document.getElementById('freq-'+i).remove();
+  showToast(`You and ${name} are now friends! 🎉`);
+}
+function deleteFriend(i){
+  document.getElementById('freq-'+i).remove();
+  showToast('Friend request removed.');
+}
+
+// ── CONTACTS ──
+function renderContacts(){
+  const el=document.getElementById('contacts-list');
+  el.innerHTML=CONTACTS.map(c=>{
+    const u=getUser(c.uid);
+    return `<div class="contact" onclick="openChat(${c.uid})">
+      <div class="contact-avatar" style="background:${u.color};width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.8rem;position:relative">
+        ${u.initials}
+        ${c.online?'<div class="online-dot"></div>':''}
+      </div>
+      <div class="contact-name">${u.name}</div>
+      ${!c.online?'<span style="font-size:.75rem;color:var(--sub)">2h</span>':''}
+    </div>`;
+  }).join('');
+}
+
+// ── TRENDING ──
+function renderTrending(){
+  const el=document.getElementById('trending-list');
+  el.innerHTML=TRENDING.map((t,i)=>`
+    <div class="trend-item" onclick="showToast('Browsing ${t.tag}...')">
+      <div class="trend-rank">${i+1}</div>
+      <div class="trend-info"><div class="trend-tag">${t.tag}</div><div class="trend-count">${t.count}</div></div>
+      <div class="trend-icon">${t.icon}</div>
+    </div>`).join('');
+}
+
+// ── POSTS ──
+function buildPostHTML(post, idx){
+  const isMe = post.uid==='me';
+  const u = isMe ? ME : getUser(post.uid);
+  const state = postStates[idx] = postStates[idx] || {liked:false, likes:post.likes||0, reaction:'👍', showComments:false, comments:[...post.comments||[]]};
+
+  let mediaHTML='';
+  if(post.type==='image'){
+    mediaHTML=`<div class="post-image-placeholder" style="background:${post.bg||'#eee'}">${post.emoji||'🖼️'}</div>`;
+  } else if(post.type==='poll'){
+    const total=post.pollVotes.reduce((a,b)=>a+b,0);
+    mediaHTML=`<div style="padding:0 16px 12px">
+      ${post.pollOptions.map((opt,oi)=>{
+        const pct=Math.round((post.pollVotes[oi]/total)*100);
+        return `<div class="poll-option${pollVoted[idx]===oi?' voted':''}" onclick="votePoll(${idx},${oi},${total})">
+          <div class="poll-fill" style="width:${pollVoted[idx]!==undefined?pct:0}%"></div>
+          <div class="poll-label"><span>${opt}</span>${pollVoted[idx]!==undefined?`<span class="poll-pct">${pct}%</span>`:''}</div>
+        </div>`;
+      }).join('')}
+      <div style="font-size:.78rem;color:var(--sub);margin-top:6px">${total.toLocaleString()} votes · Poll closes in 2 days</div>
+    </div>`;
+  }
+
+  const reactionEmojis=['👍','❤️','😂','😮','😢','😡'];
+  const reactionLabels=['Like','Love','Haha','Wow','Sad','Angry'];
+
+  const commentsHTML = state.comments.map(c=>{
+    const cu=c.uid==='me'? ME : getUser(c.uid);
+    return `<div class="comment">
+      <div class="comment-avatar" style="background:${cu.color}">${cu.initials}</div>
+      <div>
+        <div class="comment-bubble">
+          <div class="comment-name">${cu.name}</div>
+          <div class="comment-text">${c.text}</div>
+        </div>
+        <div class="comment-meta">
+          <span>${c.time}</span>
+          <span onclick="showToast('Liked comment!')">Like</span>
+          <span onclick="showToast('Replying...')">Reply</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div class="card" id="post-${idx}">
+    <div class="post-header">
+      <div class="post-avatar" style="background:${u.color}">${u.initials}</div>
+      <div class="post-meta">
+        <div class="post-author">${u.name}${isMe?'<span class="badge">You</span>':''}</div>
+        <div class="post-timestamp">${post.time} · 🌐</div>
+      </div>
+      <button style="margin-left:auto;background:none;border:none;font-size:1.2rem;color:var(--sub);cursor:pointer;padding:4px 8px;border-radius:8px" onclick="showToast('Post options...')">···</button>
+    </div>
+    <div class="post-body">
+      <div class="post-text">${post.text}</div>
+    </div>
+    ${mediaHTML}
+    <div class="post-stats">
+      <div class="post-reactions-display">
+        <span class="reaction-emoji-small">👍</span>
+        <span class="reaction-emoji-small">❤️</span>
+        <span class="reaction-emoji-small">😂</span>
+        <span style="margin-left:4px">${state.likes.toLocaleString()}</span>
+      </div>
+      <div style="cursor:pointer" onclick="toggleComments(${idx})">${state.comments.length} comment${state.comments.length!==1?'s':''} · ${Math.floor(Math.random()*30)+5} shares</div>
+    </div>
+    <div class="post-actions-row">
+      <button class="post-action-btn${state.liked?' liked':''}" id="like-btn-${idx}" onclick="toggleLike(${idx})">
+        <div class="reaction-picker" id="reaction-picker-${idx}">
+          ${reactionEmojis.map((e,i)=>`<div class="reaction-icon" title="${reactionLabels[i]}" onclick="setReaction(event,${idx},'${e}','${reactionLabels[i]}')">${e}</div>`).join('')}
+        </div>
+        <span class="icon">${state.liked? state.reaction:'👍'}</span>
+        <span id="like-label-${idx}">${state.liked? state.reaction+' '+reactionLabels[reactionEmojis.indexOf(state.reaction)] : 'Like'}</span>
+      </button>
+      <button class="post-action-btn" onclick="toggleComments(${idx})">
+        <span class="icon">💬</span><span>Comment</span>
+      </button>
+      <button class="post-action-btn" onclick="openShare()">
+        <span class="icon">↗️</span><span>Share</span>
+      </button>
+    </div>
+    <div id="comments-${idx}" style="display:${state.showComments?'block':'none'}">
+      <div class="comments-section">
+        ${commentsHTML}
+        <div class="comment-input-row">
+          <div class="comment-avatar" style="background:${ME.color}">${ME.initials}</div>
+          <textarea class="comment-input" placeholder="Write a comment..." rows="1"
+            onkeydown="submitComment(event,${idx})" oninput="autoResize(this)"></textarea>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleLike(idx){
+  const s=postStates[idx];
+  s.liked=!s.liked;
+  if(s.liked){s.likes++;s.reaction='👍';}
+  else s.likes--;
+  refreshPost(idx);
+  if(s.liked) showToast('You liked this post!');
+}
+
+function setReaction(e,idx,emoji,label){
+  e.stopPropagation();
+  const s=postStates[idx];
+  const wasSame=s.liked && s.reaction===emoji;
+  if(wasSame){s.liked=false;s.likes--;}
+  else{if(!s.liked)s.likes++;s.liked=true;s.reaction=emoji;}
+  refreshPost(idx);
+  if(s.liked) showToast('You reacted '+emoji);
+}
+
+function toggleComments(idx){
+  const s=postStates[idx];
+  s.showComments=!s.showComments;
+  document.getElementById('comments-'+idx).style.display=s.showComments?'block':'none';
+}
+
+function submitComment(e,idx){
+  if(e.key==='Enter'&&!e.shiftKey){
+    e.preventDefault();
+    const ta=e.target;
+    const text=ta.value.trim();
+    if(!text)return;
+    postStates[idx].comments.push({uid:'me',text,time:'just now'});
+    ta.value=''; ta.style.height='auto';
+    refreshPost(idx);
+    postStates[idx].showComments=true;
+  }
+}
+
+function autoResize(ta){
+  ta.style.height='auto';
+  ta.style.height=Math.min(ta.scrollHeight,120)+'px';
+}
+
+function votePoll(idx,optionIdx,total){
+  if(pollVoted[idx]!==undefined)return;
+  pollVoted[idx]=optionIdx;
+  refreshPost(idx);
+  showToast('Vote cast!');
+}
+
+function refreshPost(idx){
+  const el=document.getElementById('post-'+idx);
+  if(!el)return;
+  const allPosts=[...POST_TEMPLATES,...EXTRA_POSTS];
+  const post=idx<POST_TEMPLATES.length? POST_TEMPLATES[idx] : allPosts[idx];
+  // Only update the post if we have it
+  const tmp=document.createElement('div');
+  if(post) tmp.innerHTML=buildPostHTML(post,idx);
+  if(tmp.firstElementChild) el.replaceWith(tmp.firstElementChild);
+}
+
+function renderPosts(){
+  const feed=document.getElementById('posts-feed');
+  feed.innerHTML=POST_TEMPLATES.map((p,i)=>buildPostHTML(p,i)).join('');
+}
+
+function prependPost(post){
+  const feed=document.getElementById('posts-feed');
+  const idx=9900+Date.now()%1000; // unique idx for new posts
+  postStates[idx]={liked:false,likes:0,reaction:'👍',showComments:false,comments:[]};
+  const tmp=document.createElement('div');
+  tmp.innerHTML=buildPostHTML(post,idx);
+  const el=tmp.firstElementChild;
+  el.id='post-'+idx;
+  el.style.opacity='0';el.style.transform='translateY(-20px)';el.style.transition='all .4s ease';
+  feed.prepend(el);
+  requestAnimationFrame(()=>{el.style.opacity='1';el.style.transform='translateY(0)';});
+}
+
+function loadMorePosts(){
+  const feed=document.getElementById('posts-feed');
+  EXTRA_POSTS.forEach((post,i)=>{
+    const idx=POST_TEMPLATES.length+i;
+    feed.insertAdjacentHTML('beforeend',buildPostHTML(post,idx));
+  });
+  showToast('Loaded more posts!');
+}
+
+// ── CHAT ──
+function openChat(uid){
+  activeChatUid=uid;
+  const u=getUser(uid);
+  document.getElementById('chat-win-name').textContent=u.name;
+  const av=document.getElementById('chat-win-avatar');
+  av.style.background=u.color;
+  av.textContent=u.initials;
+  renderChatMessages();
+  document.getElementById('chat-window').classList.add('open');
+  document.getElementById('chat-input').focus();
+}
+
+function toggleChatWindow(){
+  const win=document.getElementById('chat-window');
+  win.classList.toggle('open');
+  if(win.classList.contains('open')){
+    renderChatMessages();
+    document.getElementById('chat-input').focus();
+  }
+}
+
+function renderChatMessages(){
+  const msgs=CHAT_HISTORY[activeChatUid]||[];
+  const el=document.getElementById('chat-messages');
+  el.innerHTML=msgs.map(m=>`<div class="chat-msg ${m.me?'me':'them'}">${m.text}</div>`).join('');
+  el.scrollTop=el.scrollHeight;
+}
+
+function sendChatMsg(){
+  const inp=document.getElementById('chat-input');
+  const text=inp.value.trim();
+  if(!text)return;
+  if(!CHAT_HISTORY[activeChatUid]) CHAT_HISTORY[activeChatUid]=[];
+  CHAT_HISTORY[activeChatUid].push({me:true,text});
+  inp.value='';
+  renderChatMessages();
+  // Simulate reply
+  setTimeout(()=>{
+    const replies=['Ha! That\'s so true 😄','Interesting...','Tell me more!','No way! 😮','Haha exactly!','I agree!'];
+    CHAT_HISTORY[activeChatUid].push({me:false,text:replies[Math.floor(Math.random()*replies.length)]});
+    renderChatMessages();
+  },800+Math.random()*1200);
+}
+
+function chatKeydown(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendChatMsg();}}
+
+// ── INIT ──
+renderStories();
+renderNotifications();
+renderFriendRequests();
+renderContacts();
+renderTrending();
+renderPosts();
+openChat(1); // Open chat with first contact by default
+document.getElementById('chat-window').classList.remove('open'); // But keep it closed
+</script>
 </body>
 </html>
