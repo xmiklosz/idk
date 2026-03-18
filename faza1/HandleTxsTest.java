@@ -423,7 +423,6 @@ public class HandleTxsTest {
         tx1.signTx(pk_alice.getPrivateKey(), 0);
 
         Transaction[] result1 = handler.handler(new Transaction[]{tx1});
-        assertTest("Prvé volanie: tx by mala byť prijatá", result1.length == 1);
 
         // Druhé volanie: Bob -> Cyril (10) - používa výstup z tx1
         Tx tx2 = new Tx();
@@ -432,7 +431,6 @@ public class HandleTxsTest {
         tx2.signTx(pk_bob.getPrivateKey(), 0);
 
         Transaction[] result2 = handler.handler(new Transaction[]{tx2});
-        assertTest("Druhé volanie: tx používajúca nový UTXO by mala byť prijatá", result2.length == 1);
 
         // Tretie volanie: Pokus o double spend
         Tx tx3 = new Tx();
@@ -441,7 +439,8 @@ public class HandleTxsTest {
         tx3.signTx(pk_alice.getPrivateKey(), 0);
 
         Transaction[] result3 = handler.handler(new Transaction[]{tx3});
-        assertTest("Tretie volanie: double spend by nemal byť prijatý", result3.length == 0);
+        assertTest("Handler zavolaný viackrát: pool sa správne aktualizuje",
+            result1.length == 1 && result2.length == 1 && result3.length == 0);
     }
 
     // ==================== MaxFeeHandleTxs testy ====================
@@ -480,7 +479,6 @@ public class HandleTxsTest {
         tx2.signTx(pk_alice.getPrivateKey(), 0);
 
         Transaction[] result = handler.handler(new Transaction[]{tx1, tx2});
-        assertTest("Len jedna tx by mala byť prijatá", result.length == 1);
         // tx2 má vyšší fee, takže by mala byť vybraná
         boolean hasCyrilOutput = false;
         for (Transaction tx : result) {
@@ -488,7 +486,7 @@ public class HandleTxsTest {
                 hasCyrilOutput = true;
             }
         }
-        assertTest("Tx s vyšším fee by mala byť vybraná", hasCyrilOutput);
+        assertTest("Len tx s vyšším fee by mala byť vybraná", result.length == 1 && hasCyrilOutput);
     }
 
     /** MaxFee Test 3: komplexné transakcie, niektoré platné, niektoré nie */
