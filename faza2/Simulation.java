@@ -6,6 +6,7 @@
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Random;
 import java.util.Set;
 import java.util.HashMap;
@@ -161,20 +162,78 @@ public class Simulation {
          }
       }
 
-      // Skontroluj konsenzus
-      Set<Transaction> referenceSet = null;
-      boolean allAgree = true;
+      // Vyhodnotenie zhody medzi dobrymi uzlami
+      System.out.println("-------------------------------------------");
+      System.out.println("        VYHODNOTENIE ZHODY UZLOV");
+      System.out.println("-------------------------------------------");
 
-      for (int i = 0; i < numNodes; i++) {
-         if (isByzantine[i]) continue;
-         Set<Transaction> nodeResult = nodes[i].followersSend();
-         if (referenceSet == null) {
-            referenceSet = nodeResult;
-         } else if (!referenceSet.equals(nodeResult)) {
-            allAgree = false;
+      ArrayList<Integer> goodNodes = new ArrayList<>();
+      HashMap<Integer, Set<Transaction>> resultsMap = new HashMap<>();
+
+      for (int idx = 0; idx < numNodes; idx++) {
+         if (!isByzantine[idx]) {
+            goodNodes.add(idx);
+            resultsMap.put(idx, nodes[idx].followersSend());
          }
       }
 
-      return allAgree && referenceSet != null && referenceSet.size() > 0;
+      int numByzantine = numNodes - goodNodes.size();
+      System.out.println("Pocet uzlov spolu : " + numNodes);
+      System.out.println("Doverhodne uzly   : " + goodNodes.size());
+      System.out.println("Podvodne uzly     : " + numByzantine);
+      System.out.println();
+
+      if (goodNodes.isEmpty()) {
+         System.out.println("Ziadne doverhodne uzly v sieti!");
+         System.out.println("-------------------------------------------");
+         return false;
+      }
+
+      int firstGood = goodNodes.get(0);
+      Set<Transaction> baseline = resultsMap.get(firstGood);
+      int disagreements = 0;
+
+      for (int k = 1; k < goodNodes.size(); k++) {
+         int nodeId = goodNodes.get(k);
+         Set<Transaction> nodeOut = resultsMap.get(nodeId);
+         if (!baseline.equals(nodeOut)) {
+            disagreements++;
+         }
+      }
+
+      if (disagreements == 0) {
+         System.out.println("VYSLEDOK: USPECH - vsetky doverhodne uzly sa zhoduju!");
+         System.out.println("Prijate transakcie: " + baseline.size() + " z " + validTxIds.size());
+      } else {
+         System.out.println("VYSLEDOK: NEUSPECH - uzly sa nezhoduju.");
+         System.out.println("Pocet nezhod: " + disagreements + " z " + goodNodes.size());
+         System.out.println();
+
+         for (int k = 1; k < goodNodes.size(); k++) {
+            int nid = goodNodes.get(k);
+            Set<Transaction> nout = resultsMap.get(nid);
+            if (!nout.equals(baseline)) {
+               HashSet<Transaction> chybajuce = new HashSet<>(baseline);
+               chybajuce.removeAll(nout);
+
+               HashSet<Transaction> navyse = new HashSet<>(nout);
+               navyse.removeAll(baseline);
+
+               System.out.println("  Uzol " + nid + " vs Uzol " + firstGood + ":");
+               System.out.println("    Chybajuce tx : " + chybajuce.size());
+               System.out.println("    Navyse tx    : " + navyse.size());
+            }
+         }
+
+         Set<Transaction> spolocne = new HashSet<>(baseline);
+         for (Set<Transaction> vo : resultsMap.values()) {
+            spolocne.retainAll(vo);
+         }
+         System.out.println();
+         System.out.println("Tx na ktorych sa zhodli vsetci: " + spolocne.size() + " z " + validTxIds.size());
+      }
+
+      System.out.println("-------------------------------------------");
+      return disagreements == 0 && baseline.size() > 0;
    }
 }
