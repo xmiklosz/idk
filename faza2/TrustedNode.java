@@ -29,31 +29,21 @@ public class TrustedNode implements Node {
     }
 
     public void pendingTransactionSet(Set<Transaction> pendingTransactions) {
-        // Inicializácia: všetky počiatočné transakcie sú považované za platné
         this.consensusTransactions = new HashSet<Transaction>(pendingTransactions);
     }
 
     public Set<Transaction> followersSend() {
-        // Pošleme všetky transakcie, o ktorých vieme - tie sa šíria sieťou
         return new HashSet<Transaction>(consensusTransactions);
     }
 
     public void followeesReceive(ArrayList<Integer[]> candidates) {
-        // Spracovanie prijatých kandidátov od followees
-        // Akceptujeme každú transakciu od uzla, ktorý sledujeme.
-        // Simulácia už filtruje neplatné transakcie (kontroluje validTxIds),
-        // takže tu stačí akceptovať všetko od dôveryhodných followees.
-        // Tým sa transakcie šíria sieťou a po dostatočnom počte kôl
-        // všetky čestné uzly konvergujú k rovnakému setu transakcií.
         for (Integer[] candidate : candidates) {
             int txId = candidate[0];
             int sender = candidate[1];
 
-            // Akceptujeme iba od uzlov, ktoré sledujeme
             if (!followees[sender]) continue;
 
-            Transaction tx = new Transaction(txId);
-            consensusTransactions.add(tx);
+            consensusTransactions.add(new Transaction(txId));
         }
     }
 }
