@@ -8,55 +8,89 @@ import java.util.Random;
 
 /**
  * Unit testy pre TrustedNode (Fáza 2).
- * Pokrýva 4 testovacie scenáre pre byzantský konsenzuálny algoritmus.
+ *
+ * Test 1: niekoľko testov s rôznymi parametrami: numNodes, p_graph, p_malicious,
+ *         p_txDistribution, numRounds
+ * Test 2: testuje konsenzus medzi uzlami s rôznymi parametrami a čas koľko trvá
+ *         dosiahnuť konsenzus
  */
 public class TrustedNodeTest {
 
     private static int passed = 0;
     private static int failed = 0;
 
+    // ANSI farby pre prehľadný výstup
+    private static final String GREEN = "\u001B[32m";
+    private static final String RED = "\u001B[31m";
+    private static final String YELLOW = "\u001B[33m";
+    private static final String CYAN = "\u001B[36m";
+    private static final String BOLD = "\u001B[1m";
+    private static final String RESET = "\u001B[0m";
+
     public static void main(String[] args) {
-        System.out.println("=== TrustedNode Tests (Fáza 2) ===");
+        System.out.println(BOLD + "╔════════════════════════════════════════════════════════════╗");
+        System.out.println("║          TrustedNode Unit Testy (Fáza 2)                   ║");
+        System.out.println("╚════════════════════════════════════════════════════════════╝" + RESET);
 
-        test1_consensusLowByzantine();
-        test2_consensusMediumByzantine();
-        test3_consensusHighByzantine();
-        test4_consensusSetNonEmpty();
+        System.out.println("\n" + BOLD + "--- Test 1: rôzne parametre (numNodes, p_graph, p_malicious, p_txDistribution, numRounds) ---" + RESET);
+        test1a_variousParams_lowByzantine();
+        test1b_variousParams_highByzantine();
 
-        System.out.println("\n=== Výsledky ===");
-        System.out.println("Úspešných: " + passed + " / " + (passed + failed));
-        System.out.println("Neúspešných: " + failed);
+        System.out.println("\n" + BOLD + "--- Test 2: konsenzus medzi uzlami + čas dosiahnutia konsenzu ---" + RESET);
+        test2a_consensusTime_fewRounds();
+        test2b_consensusTime_moreRounds();
+
+        System.out.println();
+        System.out.println(BOLD + "╔════════════════════════════════════════════════════════════╗");
+        if (failed == 0) {
+            System.out.println("║  " + GREEN + "VŠETKY TESTY ÚSPEŠNÉ: " + passed + "/" + (passed + failed) + RESET + BOLD + "                              ║");
+        } else {
+            System.out.println("║  " + RED + "NEÚSPEŠNÉ: " + failed + " z " + (passed + failed) + RESET + BOLD + "                                      ║");
+        }
+        System.out.println("╚════════════════════════════════════════════════════════════╝" + RESET);
     }
 
     private static void assertTest(String name, boolean condition) {
         if (condition) {
-            System.out.println("  PASS: " + name);
+            System.out.println("  " + GREEN + "✔ PASS" + RESET + ": " + name);
             passed++;
         } else {
-            System.out.println("  FAIL: " + name);
+            System.out.println("  " + RED + "✘ FAIL" + RESET + ": " + name);
             failed++;
         }
     }
 
     /**
-     * Spustí simuláciu s danými parametrami a vráti true ak všetky
-     * trusted uzly dosiahli rovnaký konsenzus (rovnaký set transakcií).
-     * Tiež vráti veľkosť konsenzuálneho setu cez pole consensusSize.
+     * Výsledok simulácie - obsahuje všetky dôležité info.
      */
-    private static boolean runSimulation(double p_graph, double p_byzantine,
-            double p_txDistribution, int numRounds, int[] consensusSize) {
+    private static class SimResult {
+        boolean consensus;
+        int consensusSize;
+        long elapsedMs;
+        int trustedCount;
+        int byzantineCount;
+    }
 
-        int numNodes = 100;
+    /**
+     * Spustí simuláciu s danými parametrami a vráti detailný výsledok.
+     */
+    private static SimResult runSimulation(int numNodes, double p_graph, double p_byzantine,
+            double p_txDistribution, int numRounds) {
+
         int numTx = 500;
-        Random random = new Random(42); // fixný seed pre reprodukovateľnosť
+        Random random = new Random(42);
+
+        long startTime = System.currentTimeMillis();
 
         // Vytvor uzly
         Node[] nodes = new Node[numNodes];
         boolean[] isByzantine = new boolean[numNodes];
+        int byzantineCount = 0;
         for (int i = 0; i < numNodes; i++) {
             if (random.nextDouble() < p_byzantine) {
                 nodes[i] = new ByzantineNode(p_graph, p_byzantine, p_txDistribution, numRounds);
                 isByzantine[i] = true;
+                byzantineCount++;
             } else {
                 nodes[i] = new TrustedNode(p_graph, p_byzantine, p_txDistribution, numRounds);
                 isByzantine[i] = false;
@@ -74,7 +108,6 @@ public class TrustedNodeTest {
             }
         }
 
-        // Upozorni uzly o followees
         for (int i = 0; i < numNodes; i++)
             nodes[i].followeesSet(followees[i]);
 
@@ -107,8 +140,7 @@ public class TrustedNodeTest {
                         if (!followees[j][i]) continue;
 
                         if (allProposals.containsKey(j)) {
-                            Integer[] candidate = new Integer[]{tx.id, i};
-                            allProposals.get(j).add(candidate);
+                            allProposals.get(j).add(new Integer[]{tx.id, i});
                         } else {
                             ArrayList<Integer[]> candidates = new ArrayList<>();
                             candidates.add(new Integer[]{tx.id, i});
@@ -123,6 +155,8 @@ public class TrustedNodeTest {
                     nodes[i].followeesReceive(allProposals.get(i));
             }
         }
+
+        long elapsed = System.currentTimeMillis() - startTime;
 
         // Skontroluj konsenzus medzi trusted uzlami
         Set<Transaction> referenceSet = null;
@@ -143,43 +177,100 @@ public class TrustedNodeTest {
             }
         }
 
-        if (consensusSize != null && consensusSize.length > 0) {
-            consensusSize[0] = consensusCount;
+        SimResult result = new SimResult();
+        result.consensus = allAgree;
+        result.consensusSize = consensusCount;
+        result.elapsedMs = elapsed;
+        result.trustedCount = numNodes - byzantineCount;
+        result.byzantineCount = byzantineCount;
+        return result;
+    }
+
+    /**
+     * Vypíše prehľadné info o parametroch a výsledku simulácie.
+     */
+    private static void printSimInfo(String label, int numNodes, double p_graph,
+            double p_byzantine, double p_txDistribution, int numRounds, SimResult r) {
+        System.out.println(CYAN + "  [" + label + "]" + RESET);
+        System.out.println("    Parametre: numNodes=" + numNodes
+            + ", p_graph=" + p_graph
+            + ", p_malicious=" + p_byzantine
+            + ", p_txDistribution=" + p_txDistribution
+            + ", numRounds=" + numRounds);
+        System.out.println("    Uzly: " + r.trustedCount + " trusted, " + r.byzantineCount + " byzantských");
+        System.out.println("    Konsenzus: " + (r.consensus ? GREEN + "DOSIAHNUTÝ" + RESET : RED + "NEDOSIAHNUTÝ" + RESET));
+        System.out.println("    Veľkosť konsenzuálneho setu: " + r.consensusSize + " transakcií");
+        System.out.println("    Čas simulácie: " + r.elapsedMs + " ms");
+    }
+
+    // ==================== Test 1: rôzne parametre ====================
+
+    /**
+     * Test 1a: ľahšia kombinácia parametrov
+     * numNodes=100, p_graph=0.1, p_malicious=0.15, p_txDistribution=0.01, numRounds=10
+     */
+    static void test1a_variousParams_lowByzantine() {
+        int numNodes = 100;
+        double p_graph = 0.1, p_byz = 0.15, p_tx = 0.01;
+        int rounds = 10;
+        SimResult r = runSimulation(numNodes, p_graph, p_byz, p_tx, rounds);
+        printSimInfo("Ľahká kombinácia", numNodes, p_graph, p_byz, p_tx, rounds, r);
+        assertTest("Konsenzus s ľahkými parametrami (p_malicious=0.15, p_graph=0.1)", r.consensus && r.consensusSize > 0);
+    }
+
+    /**
+     * Test 1b: najťažšia kombinácia parametrov
+     * numNodes=50, p_graph=0.1, p_malicious=0.45, p_txDistribution=0.10, numRounds=20
+     */
+    static void test1b_variousParams_highByzantine() {
+        int numNodes = 50;
+        double p_graph = 0.1, p_byz = 0.45, p_tx = 0.10;
+        int rounds = 20;
+        SimResult r = runSimulation(numNodes, p_graph, p_byz, p_tx, rounds);
+        printSimInfo("Najťažšia kombinácia", numNodes, p_graph, p_byz, p_tx, rounds, r);
+        if (!r.consensus) {
+            System.out.println("    " + YELLOW + "⚠ POZOR: Pri najťažších parametroch konsenzus nebol dosiahnutý!" + RESET);
+            System.out.println("    " + YELLOW + "  Skúste zvýšiť numRounds alebo vylepšiť TrustedNode algoritmus." + RESET);
         }
-
-        return allAgree;
+        assertTest("Konsenzus s najťažšími parametrami (p_malicious=0.45, p_graph=0.1)", r.consensus && r.consensusSize > 0);
     }
 
-    /** Test 1: konsenzus s nízkou mierou byzantských uzlov (15%) */
-    static void test1_consensusLowByzantine() {
-        System.out.println("Test 1: konsenzus s p_byzantine=0.15, p_graph=0.2, numRounds=10");
-        int[] consensusSize = new int[1];
-        boolean consensus = runSimulation(0.2, 0.15, 0.05, 10, consensusSize);
-        assertTest("Všetky trusted uzly dosiahli konsenzus (15% byzantských)", consensus);
+    // ==================== Test 2: konsenzus a čas ====================
+
+    /**
+     * Test 2a: meria čas dosiahnutia konsenzu s 10 kolami
+     */
+    static void test2a_consensusTime_fewRounds() {
+        int numNodes = 100;
+        double p_graph = 0.2, p_byz = 0.30, p_tx = 0.05;
+        int rounds = 10;
+        SimResult r = runSimulation(numNodes, p_graph, p_byz, p_tx, rounds);
+        printSimInfo("Konsenzus 10 kôl", numNodes, p_graph, p_byz, p_tx, rounds, r);
+        assertTest("Konsenzus dosiahnutý za " + r.elapsedMs + " ms (10 kôl)", r.consensus && r.consensusSize > 0);
     }
 
-    /** Test 2: konsenzus so strednou mierou byzantských uzlov (30%) */
-    static void test2_consensusMediumByzantine() {
-        System.out.println("Test 2: konsenzus s p_byzantine=0.30, p_graph=0.2, numRounds=10");
-        int[] consensusSize = new int[1];
-        boolean consensus = runSimulation(0.2, 0.30, 0.05, 10, consensusSize);
-        assertTest("Všetky trusted uzly dosiahli konsenzus (30% byzantských)", consensus);
-    }
+    /**
+     * Test 2b: porovnáva 10 vs 20 kôl - viac kôl => lepší/rovnaký konsenzus
+     */
+    static void test2b_consensusTime_moreRounds() {
+        int numNodes = 100;
+        double p_graph = 0.2, p_byz = 0.30, p_tx = 0.10;
 
-    /** Test 3: konsenzus s vysokou mierou byzantských uzlov (45%) */
-    static void test3_consensusHighByzantine() {
-        System.out.println("Test 3: konsenzus s p_byzantine=0.45, p_graph=0.3, numRounds=20");
-        int[] consensusSize = new int[1];
-        boolean consensus = runSimulation(0.3, 0.45, 0.10, 20, consensusSize);
-        assertTest("Všetky trusted uzly dosiahli konsenzus (45% byzantských)", consensus);
-    }
+        SimResult r10 = runSimulation(numNodes, p_graph, p_byz, p_tx, 10);
+        SimResult r20 = runSimulation(numNodes, p_graph, p_byz, p_tx, 20);
 
-    /** Test 4: konsenzuálny set nie je prázdny */
-    static void test4_consensusSetNonEmpty() {
-        System.out.println("Test 4: konsenzuálny set nie je prázdny");
-        int[] consensusSize = new int[1];
-        boolean consensus = runSimulation(0.3, 0.15, 0.10, 20, consensusSize);
-        assertTest("Konsenzuálny set obsahuje transakcie",
-            consensus && consensusSize[0] > 0);
+        printSimInfo("10 kôl", numNodes, p_graph, p_byz, p_tx, 10, r10);
+        printSimInfo("20 kôl", numNodes, p_graph, p_byz, p_tx, 20, r20);
+
+        System.out.println(CYAN + "  [Porovnanie]" + RESET);
+        System.out.println("    10 kôl: " + r10.consensusSize + " tx, " + r10.elapsedMs + " ms"
+            + (r10.consensus ? GREEN + " ✔" + RESET : RED + " ✘" + RESET));
+        System.out.println("    20 kôl: " + r20.consensusSize + " tx, " + r20.elapsedMs + " ms"
+            + (r20.consensus ? GREEN + " ✔" + RESET : RED + " ✘" + RESET));
+        System.out.println("    Rozdiel v čase: +" + (r20.elapsedMs - r10.elapsedMs) + " ms za ďalších 10 kôl");
+
+        assertTest("20 kôl dosiahne konsenzus s >= transakciami ako 10 kôl ("
+            + r20.consensusSize + " >= " + r10.consensusSize + ")",
+            r20.consensus && r20.consensusSize >= r10.consensusSize);
     }
 }
