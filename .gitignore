@@ -1,8 +1,15 @@
 # Compiled binaries
 tester
+tester_trees
+tester_hash
 twothree_tree
 rbtree
 hash_chain_bin
 hash_double_bin
 *.o
 *.exe
+
+# Generated CSV results
+results.csv
+tree_results.csv
+hash_results.csv
