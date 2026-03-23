@@ -341,13 +341,13 @@ static TreeScenario TREE_SCENARIOS[] = {
 };
 #define NUM_TREE_SCENARIOS 5
 
-static int TREE_SIZES[] = {1000, 5000, 10000, 50000, 100000};
+static int TREE_SIZES[] = {1000, 10000, 100000, 1000000, 10000000};
 #define NUM_TREE_SIZES 5
 
 /* ========== Main ========== */
 
 int main(void) {
-    srand(42);
+    srand(time(NULL));
 
     printf("================================================================\n");
     printf("  Tree Comparison: 2-3 Tree vs Red-Black Tree\n");
@@ -384,7 +384,7 @@ int main(void) {
                    "----------------", "------------", "------------", "------------");
 
             for (int d = 0; d < NUM_TREES; d++) {
-                srand(42);
+                srand(time(NULL) ^ (d * 31 + z * 997 + s * 7919));
                 TreeBenchResult r = TREE_SCENARIOS[s].fn(&TREES[d], N);
                 printf("  %-16s | %12.1f | %12.1f | %12.1f\n",
                        TREES[d].name, r.ins_ns_per_op, r.srch_ns_per_op, r.del_ns_per_op);

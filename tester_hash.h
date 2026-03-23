@@ -329,13 +329,13 @@ static HashScenario HASH_SCENARIOS[] = {
 };
 #define NUM_HASH_SCENARIOS 5
 
-static int HASH_SIZES[] = {1000, 5000, 10000, 50000, 100000};
+static int HASH_SIZES[] = {1000, 10000, 100000, 1000000, 10000000};
 #define NUM_HASH_SIZES 5
 
 /* ========== Main ========== */
 
 int main(void) {
-    srand(42);
+    srand(time(NULL));
 
     printf("================================================================\n");
     printf("  Hash Table Comparison: Chaining vs Double Hashing\n");
@@ -372,7 +372,7 @@ int main(void) {
                    "----------------", "------------", "------------", "------------");
 
             for (int d = 0; d < NUM_HASHES; d++) {
-                srand(42);
+                srand(time(NULL) ^ (d * 31 + z * 997 + s * 7919));
                 HashBenchResult r = HASH_SCENARIOS[s].fn(&HASHES[d], N);
                 printf("  %-16s | %12.1f | %12.1f | %12.1f\n",
                        HASHES[d].name, r.ins_ns_per_op, r.srch_ns_per_op, r.del_ns_per_op);
