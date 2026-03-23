@@ -413,7 +413,7 @@ static int SIZES[] = {1000, 10000, 100000, 1000000, 10000000};
 #define NUM_SIZES 5
 
 int main(void) {
-    srand(time(NULL));
+    srand(42);
 
     printf("================================================================\n");
     printf("  Dynamic Set Search - Implementation Comparison\n");
@@ -451,7 +451,7 @@ int main(void) {
                    "----------------", "------------", "------------", "------------");
 
             for (int d = 0; d < NUM_DS; d++) {
-                srand(time(NULL) ^ (d * 31 + z * 997 + s * 7919));
+                srand(42);
                 BenchResult r = SCENARIOS[s].fn(&ALL_DS[d], N);
                 printf("  %-16s | %12.1f | %12.1f | %12.1f\n",
                        ALL_DS[d].name, r.insert_ns, r.search_ns, r.delete_ns);

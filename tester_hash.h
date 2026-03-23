@@ -335,7 +335,7 @@ static int HASH_SIZES[] = {1000, 10000, 100000, 1000000, 10000000};
 /* ========== Main ========== */
 
 int main(void) {
-    srand(time(NULL));
+    srand(42);
 
     printf("================================================================\n");
     printf("  Hash Table Comparison: Chaining vs Double Hashing\n");
@@ -372,7 +372,7 @@ int main(void) {
                    "----------------", "------------", "------------", "------------");
 
             for (int d = 0; d < NUM_HASHES; d++) {
-                srand(time(NULL) ^ (d * 31 + z * 997 + s * 7919));
+                srand(42);
                 HashBenchResult r = HASH_SCENARIOS[s].fn(&HASHES[d], N);
                 printf("  %-16s | %12.1f | %12.1f | %12.1f\n",
                        HASHES[d].name, r.ins_ns_per_op, r.srch_ns_per_op, r.del_ns_per_op);
