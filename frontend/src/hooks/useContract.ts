@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { BrowserProvider, Contract, JsonRpcSigner, ethers } from "ethers";
-import abiJson from "../abis/PredictionMarket.json";
+import marketAbi from "../abis/PredictionMarket.json";
+import registryAbi from "../abis/OracleRegistry.json";
 
 declare global {
   interface Window {
@@ -8,24 +9,32 @@ declare global {
   }
 }
 
-const CONTRACT_ADDRESS =
-  (import.meta.env.VITE_CONTRACT_ADDRESS as string | undefined) ||
-  (abiJson as any).address ||
+const MARKET_ADDRESS =
+  (import.meta.env.VITE_MARKET_ADDRESS as string | undefined) ||
+  (marketAbi as any).address ||
+  "0x0000000000000000000000000000000000000000";
+
+const REGISTRY_ADDRESS =
+  (import.meta.env.VITE_REGISTRY_ADDRESS as string | undefined) ||
+  (registryAbi as any).address ||
   "0x0000000000000000000000000000000000000000";
 
 const CHAIN_ID = Number(import.meta.env.VITE_CHAIN_ID ?? 11155111);
 const RPC_URL = (import.meta.env.VITE_RPC_URL as string | undefined) || "https://rpc.sepolia.org";
 
-export const ABI = (abiJson as any).abi;
-export { CONTRACT_ADDRESS, CHAIN_ID, RPC_URL };
+export const MARKET_ABI = (marketAbi as any).abi;
+export const REGISTRY_ABI = (registryAbi as any).abi;
+export { MARKET_ADDRESS, REGISTRY_ADDRESS, CHAIN_ID, RPC_URL };
 
 export interface WalletState {
   account: string | null;
   chainId: number | null;
   provider: BrowserProvider | null;
   signer: JsonRpcSigner | null;
-  readContract: Contract;
-  writeContract: Contract | null;
+  market: Contract;
+  registry: Contract;
+  marketWrite: Contract | null;
+  registryWrite: Contract | null;
   isCorrectChain: boolean;
   connect: () => Promise<void>;
   switchChain: () => Promise<void>;
@@ -38,15 +47,17 @@ export function useWallet(): WalletState {
   const [signer, setSigner] = useState<JsonRpcSigner | null>(null);
 
   const readProvider = useMemo(() => new ethers.JsonRpcProvider(RPC_URL), []);
-  const readContract = useMemo(
-    () => new Contract(CONTRACT_ADDRESS, ABI, readProvider),
-    [readProvider]
-  );
+  const market = useMemo(() => new Contract(MARKET_ADDRESS, MARKET_ABI, readProvider), [readProvider]);
+  const registry = useMemo(() => new Contract(REGISTRY_ADDRESS, REGISTRY_ABI, readProvider), [readProvider]);
 
-  const writeContract = useMemo(() => {
-    if (!signer) return null;
-    return new Contract(CONTRACT_ADDRESS, ABI, signer);
-  }, [signer]);
+  const marketWrite = useMemo(
+    () => (signer ? new Contract(MARKET_ADDRESS, MARKET_ABI, signer) : null),
+    [signer]
+  );
+  const registryWrite = useMemo(
+    () => (signer ? new Contract(REGISTRY_ADDRESS, REGISTRY_ABI, signer) : null),
+    [signer]
+  );
 
   const refresh = useCallback(async () => {
     if (!window.ethereum) return;
@@ -84,7 +95,7 @@ export function useWallet(): WalletState {
 
   const connect = useCallback(async () => {
     if (!window.ethereum) {
-      alert("MetaMask not detected. Please install it from https://metamask.io");
+      alert("MetaMask not detected. Install it from https://metamask.io");
       return;
     }
     await window.ethereum.request({ method: "eth_requestAccounts" });
@@ -101,7 +112,6 @@ export function useWallet(): WalletState {
       });
     } catch (err: any) {
       if (err?.code === 4902) {
-        // Chain not added; we only auto-add Sepolia / Base Sepolia.
         const params =
           CHAIN_ID === 11155111
             ? {
@@ -134,8 +144,10 @@ export function useWallet(): WalletState {
     chainId,
     provider,
     signer,
-    readContract,
-    writeContract,
+    market,
+    registry,
+    marketWrite,
+    registryWrite,
     isCorrectChain: chainId === CHAIN_ID,
     connect,
     switchChain,

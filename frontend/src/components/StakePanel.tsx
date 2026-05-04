@@ -16,13 +16,13 @@ export default function StakePanel({
   const [busy, setBusy] = useState(false);
 
   async function stake(side: "yes" | "no") {
-    if (!wallet.writeContract) return toast.error("Connect wallet");
+    if (!wallet.marketWrite) return toast.error("Connect wallet");
     setBusy(true);
     const t = toast.loading(`Staking ${amount} ETH on ${side.toUpperCase()}…`);
     try {
       const tx = await (side === "yes"
-        ? wallet.writeContract.stakeYes(marketId, { value: ethers.parseEther(amount) })
-        : wallet.writeContract.stakeNo(marketId, { value: ethers.parseEther(amount) }));
+        ? wallet.marketWrite.stakeYes(marketId, { value: ethers.parseEther(amount) })
+        : wallet.marketWrite.stakeNo(marketId, { value: ethers.parseEther(amount) }));
       toast.loading("Waiting for confirmation…", { id: t });
       await tx.wait();
       toast.success(`Staked on ${side.toUpperCase()}`, { id: t });

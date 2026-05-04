@@ -1,89 +1,841 @@
 {
   "address": "0x0000000000000000000000000000000000000000",
   "abi": [
-    {"type":"constructor","inputs":[],"stateMutability":"nonpayable"},
-    {"type":"function","name":"RESOLVER_COLLATERAL","inputs":[],"outputs":[{"type":"uint256"}],"stateMutability":"view"},
-    {"type":"function","name":"marketCount","inputs":[],"outputs":[{"type":"uint256"}],"stateMutability":"view"},
-    {"type":"function","name":"markets","inputs":[{"type":"uint256"}],"outputs":[
-      {"name":"creator","type":"address"},
-      {"name":"question","type":"string"},
-      {"name":"resolutionTime","type":"uint256"},
-      {"name":"commitDeadline","type":"uint256"},
-      {"name":"revealDeadline","type":"uint256"},
-      {"name":"totalYesStake","type":"uint256"},
-      {"name":"totalNoStake","type":"uint256"},
-      {"name":"creatorBond","type":"uint256"},
-      {"name":"resolved","type":"bool"},
-      {"name":"result","type":"uint8"},
-      {"name":"quorum","type":"uint256"},
-      {"name":"yesVotes","type":"uint256"},
-      {"name":"noVotes","type":"uint256"},
-      {"name":"invalidVotes","type":"uint256"},
-      {"name":"slashPool","type":"uint256"},
-      {"name":"winningResolverCount","type":"uint256"}
-    ],"stateMutability":"view"},
-    {"type":"function","name":"yesStakes","inputs":[{"type":"uint256"},{"type":"address"}],"outputs":[{"type":"uint256"}],"stateMutability":"view"},
-    {"type":"function","name":"noStakes","inputs":[{"type":"uint256"},{"type":"address"}],"outputs":[{"type":"uint256"}],"stateMutability":"view"},
-    {"type":"function","name":"claimed","inputs":[{"type":"uint256"},{"type":"address"}],"outputs":[{"type":"bool"}],"stateMutability":"view"},
-    {"type":"function","name":"resolverInfo","inputs":[{"type":"uint256"},{"type":"address"}],"outputs":[
-      {"name":"commitment","type":"bytes32"},
-      {"name":"revealedVote","type":"uint8"},
-      {"name":"committed","type":"bool"},
-      {"name":"revealed","type":"bool"},
-      {"name":"rewardClaimed","type":"bool"},
-      {"name":"collateral","type":"uint256"}
-    ],"stateMutability":"view"},
-    {"type":"function","name":"createMarket","inputs":[
-      {"name":"question","type":"string"},
-      {"name":"resolutionTime","type":"uint256"},
-      {"name":"commitDeadline","type":"uint256"},
-      {"name":"revealDeadline","type":"uint256"},
-      {"name":"quorum","type":"uint256"}
-    ],"outputs":[{"type":"uint256"}],"stateMutability":"payable"},
-    {"type":"function","name":"stakeYes","inputs":[{"type":"uint256"}],"outputs":[],"stateMutability":"payable"},
-    {"type":"function","name":"stakeNo","inputs":[{"type":"uint256"}],"outputs":[],"stateMutability":"payable"},
-    {"type":"function","name":"commitResolution","inputs":[{"type":"uint256"},{"type":"bytes32"}],"outputs":[],"stateMutability":"payable"},
-    {"type":"function","name":"revealResolution","inputs":[{"type":"uint256"},{"type":"uint8"},{"type":"bytes32"}],"outputs":[],"stateMutability":"nonpayable"},
-    {"type":"function","name":"finalizeMarket","inputs":[{"type":"uint256"}],"outputs":[],"stateMutability":"nonpayable"},
-    {"type":"function","name":"claimWinnings","inputs":[{"type":"uint256"}],"outputs":[],"stateMutability":"nonpayable"},
-    {"type":"function","name":"claimResolverReward","inputs":[{"type":"uint256"}],"outputs":[],"stateMutability":"nonpayable"},
-    {"type":"function","name":"getResolvers","inputs":[{"type":"uint256"}],"outputs":[{"type":"address[]"}],"stateMutability":"view"},
-    {"type":"function","name":"resolverCount","inputs":[{"type":"uint256"}],"outputs":[{"type":"uint256"}],"stateMutability":"view"},
-    {"type":"function","name":"computeCommitment","inputs":[{"type":"uint8"},{"type":"bytes32"}],"outputs":[{"type":"bytes32"}],"stateMutability":"pure"},
-    {"type":"event","name":"MarketCreated","inputs":[
-      {"name":"marketId","type":"uint256","indexed":true},
-      {"name":"creator","type":"address","indexed":true},
-      {"name":"question","type":"string","indexed":false},
-      {"name":"resolutionTime","type":"uint256","indexed":false}
-    ],"anonymous":false},
-    {"type":"event","name":"Staked","inputs":[
-      {"name":"marketId","type":"uint256","indexed":true},
-      {"name":"user","type":"address","indexed":true},
-      {"name":"isYes","type":"bool","indexed":false},
-      {"name":"amount","type":"uint256","indexed":false}
-    ],"anonymous":false},
-    {"type":"event","name":"Committed","inputs":[
-      {"name":"marketId","type":"uint256","indexed":true},
-      {"name":"resolver","type":"address","indexed":true}
-    ],"anonymous":false},
-    {"type":"event","name":"Revealed","inputs":[
-      {"name":"marketId","type":"uint256","indexed":true},
-      {"name":"resolver","type":"address","indexed":true},
-      {"name":"outcome","type":"uint8","indexed":false}
-    ],"anonymous":false},
-    {"type":"event","name":"MarketFinalized","inputs":[
-      {"name":"marketId","type":"uint256","indexed":true},
-      {"name":"result","type":"uint8","indexed":false}
-    ],"anonymous":false},
-    {"type":"event","name":"Claimed","inputs":[
-      {"name":"marketId","type":"uint256","indexed":true},
-      {"name":"user","type":"address","indexed":true},
-      {"name":"amount","type":"uint256","indexed":false}
-    ],"anonymous":false},
-    {"type":"event","name":"ResolverRewardClaimed","inputs":[
-      {"name":"marketId","type":"uint256","indexed":true},
-      {"name":"resolver","type":"address","indexed":true},
-      {"name":"amount","type":"uint256","indexed":false}
-    ],"anonymous":false}
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "oracleRegistry",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [],
+      "name": "ReentrancyGuardReentrantCall",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "Claimed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "disputer",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "voteDeadline",
+          "type": "uint256"
+        }
+      ],
+      "name": "Disputed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "disputer",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "DisputerBondClaimed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "creator",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "question",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "tradingDeadline",
+          "type": "uint256"
+        }
+      ],
+      "name": "MarketCreated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "enum PredictionMarket.Outcome",
+          "name": "result",
+          "type": "uint8"
+        }
+      ],
+      "name": "MarketFinalized",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "oracle",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "OracleRewardClaimed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "oracle",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "enum PredictionMarket.Outcome",
+          "name": "outcome",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "weight",
+          "type": "uint256"
+        }
+      ],
+      "name": "OracleVoted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "proposer",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "enum PredictionMarket.Outcome",
+          "name": "outcome",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "disputeDeadline",
+          "type": "uint256"
+        }
+      ],
+      "name": "Proposed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "proposer",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "ProposerBondClaimed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "bool",
+          "name": "isYes",
+          "type": "bool"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "Staked",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "DISPUTE_BOND",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "DISPUTE_WINDOW",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "PROPOSAL_BOND",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "VOTE_WINDOW",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        }
+      ],
+      "name": "claimDisputerBond",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        }
+      ],
+      "name": "claimOracleReward",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        }
+      ],
+      "name": "claimProposerBond",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        }
+      ],
+      "name": "claimWinnings",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        },
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "claimed",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "question",
+          "type": "string"
+        },
+        {
+          "internalType": "uint256",
+          "name": "tradingDeadline",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "proposalDeadline",
+          "type": "uint256"
+        }
+      ],
+      "name": "createMarket",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "id",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        }
+      ],
+      "name": "disputeProposal",
+      "outputs": [],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        }
+      ],
+      "name": "finalizeMarket",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        }
+      ],
+      "name": "getVoters",
+      "outputs": [
+        {
+          "internalType": "address[]",
+          "name": "",
+          "type": "address[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "marketCount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "markets",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "creator",
+          "type": "address"
+        },
+        {
+          "internalType": "string",
+          "name": "question",
+          "type": "string"
+        },
+        {
+          "internalType": "uint256",
+          "name": "tradingDeadline",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "proposalDeadline",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "disputeDeadline",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "voteDeadline",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "totalYesStake",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "totalNoStake",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "creatorBond",
+          "type": "uint256"
+        },
+        {
+          "internalType": "enum PredictionMarket.State",
+          "name": "state",
+          "type": "uint8"
+        },
+        {
+          "internalType": "enum PredictionMarket.Outcome",
+          "name": "proposedOutcome",
+          "type": "uint8"
+        },
+        {
+          "internalType": "enum PredictionMarket.Outcome",
+          "name": "result",
+          "type": "uint8"
+        },
+        {
+          "internalType": "address",
+          "name": "proposer",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "disputer",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "yesVoteWeight",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "noVoteWeight",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "invalidVoteWeight",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "slashPool",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "winningVoteWeight",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bool",
+          "name": "proposerBondClaimed",
+          "type": "bool"
+        },
+        {
+          "internalType": "bool",
+          "name": "disputerBondClaimed",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        },
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "noStakes",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        },
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "oracleClaimed",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        },
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "oracleVote",
+      "outputs": [
+        {
+          "internalType": "enum PredictionMarket.Outcome",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        },
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "oracleVoteWeight",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "enum PredictionMarket.Outcome",
+          "name": "outcome",
+          "type": "uint8"
+        }
+      ],
+      "name": "proposeOutcome",
+      "outputs": [],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "registry",
+      "outputs": [
+        {
+          "internalType": "contract OracleRegistry",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        }
+      ],
+      "name": "stakeNo",
+      "outputs": [],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        }
+      ],
+      "name": "stakeYes",
+      "outputs": [],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "enum PredictionMarket.Outcome",
+          "name": "outcome",
+          "type": "uint8"
+        }
+      ],
+      "name": "voteOnDispute",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        }
+      ],
+      "name": "voterCount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        },
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "yesStakes",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "stateMutability": "payable",
+      "type": "receive"
+    }
   ]
 }

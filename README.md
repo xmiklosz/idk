@@ -1,34 +1,52 @@
-# Commit-Reveal Prediction Market — DMBLOCK Assignment 2
+# Optimistic-Oracle Prediction Market — DMBLOCK Assignment 2
 
-A decentralised binary prediction market where users stake ETH on yes/no
-questions. Resolution is decided by an open set of resolvers using a
-**commit-reveal** scheme with a configurable quorum, eliminating last-minute
-bandwagon voting and oracle dependence.
+A decentralised binary prediction market resolved by a **Polymarket / UMA-style
+optimistic oracle**: anyone can permissionlessly *propose* an outcome backed by
+a bond, anyone can *dispute* with a counter-bond, and contested questions
+escalate to a **stake-weighted vote of a registered oracle network**. Wrong
+proposers, disputers, and oracles lose their bond/stake to the side that turned
+out to be right.
 
 > Course: Digital Currencies and Blockchain (DMBLOCK)
-> Stack: Solidity 0.8.24 · Hardhat · ethers v6 · React + Vite + Tailwind
+> Stack: Solidity 0.8.24 (viaIR) · Hardhat · ethers v6 · React + Vite + Tailwind
 
 ---
 
-## 1. What it does
+## 1. Resolution model
 
-1. **Anyone creates a market** — a yes/no question, a resolution time, a commit
-   window, a reveal window, a quorum, and a creator bond locked into the
-   contract.
-2. **Users stake ETH** on YES or NO until the resolution time.
-3. **Resolvers commit** a `keccak256(outcome, salt)` hash, posting fixed
-   collateral. Their vote is hidden.
-4. After the commit deadline, **resolvers reveal** their `outcome` and `salt`.
-   The contract verifies the hash. Non-revealers are slashed.
-5. Anyone calls **`finalizeMarket`** after the reveal deadline. If quorum is
-   met, the majority outcome wins. Minority resolvers are slashed; their
-   collateral funds rewards for the winning side. Ties resolve to `INVALID`.
-6. **Stakers on the winning side** claim a proportional share of the loser
-   pool plus half of the slash pool plus the creator bond. **Winning
-   resolvers** claim back their collateral plus a share of the other half of
-   the slash pool. If the market is `INVALID` due to no quorum, every staker
-   is refunded plus a pro-rata share of the bond and slashed collateral, and
-   honest revealers get their collateral back.
+Polymarket inherits this model from UMA's Optimistic Oracle. The mechanism is
+"truth on demand": don't pay an oracle to constantly pump data on-chain, just
+let anyone *assert* a fact and stake economic security on it. If nobody
+disputes within a window, the assertion is taken as truth. If someone does
+dispute, the question escalates to a token-weighted vote.
+
+```
+   stake          propose          [ dispute ]      [ vote ]      finalize
+[--YES/NO--] | [-anyone+bond-] | [-anyone+bond-] | [-oracles-] | [stakers + bonds]
+^            ^                 ^                 ^             ^
+0     tradingDeadline  proposalDeadline    disputeDeadline  voteDeadline
+```
+
+- **Trading**: stake ETH on YES or NO, just like a normal market.
+- **Propose** *(permissionless)*: after trading closes anyone posts a
+  `PROPOSAL_BOND` (0.05 ETH) and asserts the outcome.
+- **Dispute** *(permissionless)*: within a 1h window, anyone can post a
+  `DISPUTE_BOND` (0.05 ETH) to escalate.
+- **Vote** *(oracles only)*: if disputed, registered oracles vote during a
+  24h window. Their vote weight equals their stake in the OracleRegistry.
+  Majority outcome wins; ties resolve to `INVALID`.
+- **Finalize**: anyone can call `finalizeMarket` once the relevant window has
+  closed. Bonds settle automatically and oracle stakes that voted against the
+  final outcome are slashed.
+
+### Bond economics
+
+| Scenario | Proposer | Disputer | Wrong-voting oracles | Right-voting oracles | Stakers |
+|----------|----------|----------|----------------------|----------------------|---------|
+| Undisputed | reclaim bond | — | — | — | winning side splits losing side + creator bond |
+| Disputed, proposer wins | wins both bonds | loses bond | slashed pro-rata | split half the slash pool, weighted by their snapshot vote weight | winning side splits losing side + creator bond + half the slash pool |
+| Disputed, disputer wins | loses bond | wins both bonds | slashed pro-rata | split half the slash pool | winning side as above |
+| No proposal by deadline | — | — | — | — | full refund + pro-rata creator bond (`INVALID` / `Expired`) |
 
 ---
 
@@ -36,32 +54,49 @@ bandwagon voting and oracle dependence.
 
 ```
 contracts/
-  PredictionMarket.sol         main contract; ReentrancyGuard; CEI claims
+  OracleRegistry.sol           staked oracle network; slashing entry point
+  PredictionMarket.sol         optimistic-oracle market lifecycle
   interfaces/IPredictionMarket.sol
+
 scripts/
-  deploy.ts                    deploys + verifies + writes ABI to frontend
-  verify.ts                    re-runs verification from a saved deployment
+  deploy.ts                    deploys both, wires registry slasher, dumps ABIs
+  verify.ts                    re-runs etherscan verification
+
 test/
-  PredictionMarket.test.ts     Chai/Mocha + hardhat-network-helpers
+  PredictionMarket.test.ts     full suite: oracle registry + market lifecycle
+                               (23 tests; happy path + ~16 failure modes)
+
 frontend/
-  src/
-    abis/PredictionMarket.json contract address + ABI for the dApp
-    hooks/useContract.ts       wallet + read/write contracts
-    utils/commitHash.ts        commitment hashing + localStorage salt store
-    components/                MarketList, MarketDetail, CreateMarket,
-                               StakePanel, CommitPanel, RevealPanel,
-                               WalletConnect
-hardhat.config.ts              Sepolia + Base Sepolia + gas reporter + coverage
+  src/abis/{PredictionMarket,OracleRegistry}.json
+  src/hooks/useContract.ts     wallet + read/write for both contracts
+  src/utils/outcome.ts         enums + formatters
+  src/components/
+    MarketList.tsx             filter by phase
+    MarketDetail.tsx           per-phase action panels + claims
+    CreateMarket.tsx
+    StakePanel.tsx             stake YES / NO
+    ProposePanel.tsx           propose outcome + bond
+    DisputePanel.tsx           dispute proposal + bond
+    VotePanel.tsx              oracle dispute vote (gated by registry)
+    OraclePage.tsx             register / top up / unregister as oracle
+    WalletConnect.tsx
 ```
 
-### Lifecycle
+### Security
 
-```
-   stake          commit          reveal           finalize       claim
-[--YES/NO--] | [--commit--] | [--reveal--] | [--anyone--] | [stakers + resolvers]
-^            ^              ^              ^
-0       resolutionTime  commitDeadline  revealDeadline
-```
+- `ReentrancyGuard` on every claim entry point (`claimWinnings`,
+  `claimProposerBond`, `claimDisputerBond`, `claimOracleReward`,
+  `finalizeMarket`).
+- All state changes happen before the external `call` (CEI).
+- Multiplications happen before divisions in the payout maths to avoid
+  precision loss.
+- `OracleRegistry.slash` is gated to a small set of approved slasher contracts
+  the registry owner has whitelisted; the deployed market is auto-approved by
+  the deploy script.
+- Oracle vote weight is **snapshotted at vote time** so subsequent slashing
+  doesn't break later reward computation.
+- The `Outcome.UNRESOLVED` sentinel is rejected anywhere a real outcome is
+  expected (propose / vote).
 
 ---
 
@@ -69,164 +104,170 @@ hardhat.config.ts              Sepolia + Base Sepolia + gas reporter + coverage
 
 ### Prerequisites
 - Node 18+
-- An EVM testnet account with Sepolia ETH ([sepolia faucet](https://sepoliafaucet.com))
-- An Etherscan API key (for verification)
+- Sepolia ETH: <https://sepoliafaucet.com>
+- An Etherscan API key for verification
 
-### Install
+### Install + test
 
 ```bash
 npm install
 cd frontend && npm install && cd ..
-cp .env.example .env       # fill in your keys
-```
+cp .env.example .env
 
-### Compile + test
-
-```bash
 npx hardhat compile
-npx hardhat test
-npx hardhat coverage       # produces ./coverage/index.html
+npx hardhat test          # 23 passing
+npx hardhat coverage
 REPORT_GAS=true npx hardhat test
 ```
 
 ### Deploy
 
 ```bash
-# local
-npx hardhat node            # in another shell
-npx hardhat run scripts/deploy.ts --network localhost
-
-# Sepolia
 npx hardhat run scripts/deploy.ts --network sepolia
-
-# Base Sepolia
-npx hardhat run scripts/deploy.ts --network baseSepolia
 ```
 
-The deploy script writes:
-- `deployments/<network>.json` — the contract address
-- `frontend/src/abis/PredictionMarket.json` — ABI + address consumed by the UI
-- and on Sepolia / Base Sepolia, calls `verify:verify` automatically.
+The script:
+1. Deploys `OracleRegistry`.
+2. Deploys `PredictionMarket(<registry>)`.
+3. Calls `registry.approveSlasher(market)` so the market can slash oracle
+   stakes.
+4. Persists `deployments/<network>.json` (registry + market addresses).
+5. Writes the ABIs into `frontend/src/abis/{PredictionMarket,OracleRegistry}.json`.
+6. Auto-verifies both contracts on Etherscan / Basescan.
 
 ### Run the frontend
 
 ```bash
 cd frontend
-cp .env.example .env       # set VITE_CONTRACT_ADDRESS / VITE_CHAIN_ID / VITE_RPC_URL
+cp .env.example .env       # set VITE_MARKET_ADDRESS, VITE_REGISTRY_ADDRESS,
+                           #     VITE_CHAIN_ID, VITE_RPC_URL
 npm run dev                # http://localhost:5173
 ```
 
-### Deploy the frontend (Vercel)
+### Vercel
 
-1. Import the repo into Vercel and set the **root directory** to `frontend/`.
-2. Set environment variables: `VITE_CONTRACT_ADDRESS`, `VITE_CHAIN_ID`, `VITE_RPC_URL`.
-3. Build command: `npm run build`. Output: `dist`.
-
----
-
-## 4. Deployment details
-
-| Network      | Contract                          | Explorer                              |
-|--------------|-----------------------------------|---------------------------------------|
-| Sepolia      | `<paste deployed address here>`   | https://sepolia.etherscan.io/address/ |
-| Base Sepolia | `<paste deployed address here>`   | https://sepolia.basescan.org/address/ |
-
-> Fill these in after `npm run deploy:sepolia` finishes. Keep the contract live
-> from submission through the presentation date — do not redeploy.
-
-Frontend: `<paste Vercel URL here>`
+Set the Vercel project root to `frontend/`. Build command `npm run build`,
+output `dist`. Environment variables: `VITE_MARKET_ADDRESS`,
+`VITE_REGISTRY_ADDRESS`, `VITE_CHAIN_ID`, `VITE_RPC_URL`.
 
 ---
 
-## 5. Security notes
+## 4. Deployed addresses
 
-- `ReentrancyGuard` on `claimWinnings` and `claimResolverReward`.
-- All state changes happen before the external `call` (CEI).
-- Multiplications happen before divisions in payout maths to avoid precision loss.
-- No oracle dependency; resolution is purely on-chain via commit-reveal.
-- A non-revealer's collateral is forfeited, so resolvers are economically
-  forced to actually reveal once they commit.
-- Tied votes (no clear majority) deterministically resolve to `INVALID` so
-  finalization can never get stuck.
+Fill these in after `npm run deploy:sepolia`. Keep both contracts live from
+submission through the presentation; do not redeploy.
+
+| Network | Registry | Market | Explorer |
+|---------|----------|--------|----------|
+| Sepolia | `<paste>` | `<paste>` | https://sepolia.etherscan.io/ |
+| Base Sepolia | `<paste>` | `<paste>` | https://sepolia.basescan.org/ |
+
+Frontend: `<paste Vercel URL>`
+
+---
+
+## 5. End-to-end demo flow
+
+1. Create a market with a question, trading deadline, and proposal window.
+2. From other accounts, stake YES / NO before the trading deadline.
+3. Once trading closes, any account can `proposeOutcome` (with 0.05 ETH bond).
+4. Within 1 hour, another account can `disputeProposal` (with 0.05 ETH bond).
+5. Register a few accounts as oracles via the **Oracles** page (each stakes
+   ≥ 0.05 ETH).
+6. Each oracle calls `voteOnDispute`. Their vote weight equals their stake.
+7. After the vote window, anyone calls `finalizeMarket`; the contract tallies,
+   slashes losing oracles, and credits the slash pool.
+8. Stakers, the winning side of (proposer ↔ disputer), and right-voting
+   oracles call their respective claim functions.
+
+If nobody proposes within the proposal window the market expires as
+`INVALID`; stakers are refunded plus a pro-rata share of the creator bond.
 
 ---
 
 ## 6. Known limitations
 
-- **Salt persistence.** The browser stores the resolver's salt in
-  `localStorage`. If the user clears it or switches devices before the reveal,
-  they cannot reveal. A production fix is to derive the salt from a wallet
-  signature (`personal_sign(marketId)`).
-- **Native ETH only.** No ERC-20 staking; trivial extension but out of scope.
-- **No reputation.** Anyone can register as a resolver. Resistance to a Sybil
-  attack relies on the resolver collateral and the slash mechanism. A future
-  version could weight votes by past honest behaviour.
-- **No price oracle fallback.** If a question has an objectively-knowable
-  outcome (e.g. ETH price), this contract still relies on resolvers to be
-  honest; a Chainlink fallback would close that gap.
-- **Non-final tiebreaking.** YES/NO ties resolve to `INVALID`, which is safe
-  but blunt; a future version could re-open the reveal window.
+- **Sybil resistance is purely economic.** Anyone can stake to become an
+  oracle; collusion is bounded by the total stake required to outvote the
+  honest majority. A reputation system or quadratic voting would tighten
+  this further.
+- **No escalation chain.** UMA escalates a disputed vote to its DVM and back;
+  here a single oracle vote is final. A second-round dispute would be a
+  natural extension.
+- **Native ETH only.** No ERC-20 staking; trivial to add.
+- **Oracle stake is locked while voting open**, but a slashed oracle whose
+  stake falls below `MIN_STAKE` is silently deactivated — not a refund flow,
+  consistent with UMA-style "lose your skin in the game" semantics.
+- **No price oracle fallback** for objectively-knowable questions. Honest
+  oracle behaviour is assumed; the bond/slash mechanics are the only
+  enforcement.
+- **Tied votes resolve to INVALID** so finalize never blocks; no re-vote.
+- **Dispute window is fixed at 1h** (chosen so demos work in a single class
+  period). For real markets this should be measured in days.
 
 ---
 
 ## 7. Bonus targets
 
-| Bonus                 | Status | Evidence |
-|-----------------------|--------|----------|
-| Hosted public frontend | ✓     | Vercel URL above |
-| Coverage ≥ 90%         | ✓     | `npx hardhat coverage` → `coverage/index.html` |
-| Gas optimisation report| ✓     | `REPORT_GAS=true npx hardhat test` baseline; see notes |
-| Originality            | ✓     | Commit-reveal + multi-resolver quorum + bond + slash |
+| Bonus | Status | Evidence |
+|-------|--------|----------|
+| Hosted public frontend | ✓ | Vercel URL above |
+| Coverage ≥ 90% | ✓ | `npx hardhat coverage` |
+| Gas optimisation report | ✓ | `REPORT_GAS=true npx hardhat test` |
+| Originality | ✓ | Two-contract optimistic-oracle resolution + stake-weighted oracle vote + permissionless propose/dispute |
 
-### Gas optimisation notes
+### Gas / design notes
 
-- `_stake` consolidates `stakeYes`/`stakeNo` so the YES/NO branches share the
-  cold-storage write path.
-- `Market` storage is read once per call into a `storage` reference, not
-  re-read for every check.
-- Loops over resolvers in `_slashLosers`/`_slashNonRevealers` cache the array
-  length and use storage references rather than repeated lookups.
-- Unused `Outcome.UNRESOLVED` is rejected at reveal so we never store it.
-- Solidity optimizer is enabled (`runs: 200`).
+- `viaIR: true` is required because `PredictionMarket` works on a wide
+  `Market` struct in storage; `viaIR` lets the compiler avoid stack-too-deep.
+- `_stake` consolidates `stakeYes`/`stakeNo` so they share the cold-storage
+  write path.
+- `_slashLosingVoters` caches `voters.length` and uses storage references
+  rather than repeated mapping lookups.
+- The `OracleRegistry` keeps an enumerable address list via swap-and-pop so
+  unregistration is O(1).
+- Vote weight is snapshotted in `oracleVoteWeight[marketId][voter]` so
+  reward maths is independent of subsequent slashing.
 
 ---
 
 ## 8. What we learned
 
-- Commit-reveal is conceptually simple but the on-chain hash must match the
-  off-chain hash exactly — `abi.encodePacked` semantics for `enum` (uint8)
-  bit you immediately if you use `abi.encode` on either side.
-- `ReentrancyGuard` is necessary but not sufficient: the CEI ordering must
-  hold even within a single function, otherwise a malicious receiver can
-  observe inconsistent state.
-- Tie-breaking and "what if quorum isn't met" need to be designed up front;
-  bolting them on later changes the payout maths everywhere.
-- ethers v6 changes a lot of small APIs from v5 (`parseEther` is now
-  `ethers.parseEther`, `BigNumber` → native `bigint`); the test suite is the
-  fastest place to find out.
-- Hardhat's `time.increaseTo` and `time.latest` are by far the easiest way
-  to test multi-deadline contracts.
+- An optimistic oracle is a *very* different design from commit-reveal: it
+  trades the privacy guarantee (commit-reveal hides votes until everyone has
+  spoken) for a much better latency/cost profile (no resolution cost when
+  uncontested).
+- Tying oracle voting weight to a slashable stake registry is the part that
+  makes the system robust: Sybils cost real money, and lying costs your stake.
+  Decoupling those two contracts (`OracleRegistry` and `PredictionMarket`)
+  lets one registry serve many market deployments.
+- Snapshotting vote weight at vote time is essential — without it, slashing
+  would retroactively change the denominator in the reward formula, and the
+  contract could become insolvent or pay too little.
+- Solidity's `viaIR` produces *much* smaller bytecode for struct-heavy
+  contracts than the legacy pipeline, at the cost of a few seconds in
+  compile time.
 
 ---
 
 ## 9. AI tool usage
 
-Claude (claude.ai) was used for code scaffolding, debugging, and drafting this
-README. All design decisions, architecture, and final review of the contract
-logic are our own. We re-derived the payout maths by hand and verified them
-with the test suite before relying on them.
+Claude (claude.ai) was used for code scaffolding, debugging, and drafting
+this README. All design decisions and the final review of the contract
+logic are our own. The payout maths was re-derived by hand and verified
+against the test suite; the test cases are checked against expected payouts
+to the wei.
 
 ---
 
 ## 10. Conclusion
 
-The contract demonstrates that a useful, trust-minimised resolution mechanism
-can be built without an oracle: economic incentives plus commit-reveal are
-enough to make resolvers behave honestly, as long as you design the slash
-mechanism so that the worst-case action (don't reveal) is also the most
-expensive one. The system degrades gracefully — if no quorum forms, stakers
-are refunded with bonus from slashed collateral; the contract never gets
-stuck.
+The optimistic-oracle architecture demonstrates that you don't need a
+permanent oracle feed or a single trusted resolver to settle a prediction
+market — you just need a credible escalation path. Three layers of bonded
+participants (proposer, disputer, oracles) make every level of the
+resolution chain economically rational, and the slash mechanism makes the
+worst behaviour (lying or vanishing) the most expensive.
 
 ---
 

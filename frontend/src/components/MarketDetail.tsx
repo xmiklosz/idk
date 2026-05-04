@@ -4,60 +4,59 @@ import { ethers } from "ethers";
 import toast from "react-hot-toast";
 import { WalletState } from "../hooks/useContract";
 import StakePanel from "./StakePanel";
-import CommitPanel from "./CommitPanel";
-import RevealPanel from "./RevealPanel";
-import { Outcome, outcomeLabel } from "../utils/commitHash";
+import ProposePanel from "./ProposePanel";
+import DisputePanel from "./DisputePanel";
+import VotePanel from "./VotePanel";
+import {
+  Outcome,
+  State,
+  outcomeLabel,
+  stateLabel,
+  fmtTimestamp,
+  countdown,
+  shortAddr,
+} from "../utils/outcome";
 
 interface FullMarket {
   creator: string;
   question: string;
-  resolutionTime: bigint;
-  commitDeadline: bigint;
-  revealDeadline: bigint;
+  tradingDeadline: bigint;
+  proposalDeadline: bigint;
+  disputeDeadline: bigint;
+  voteDeadline: bigint;
   totalYesStake: bigint;
   totalNoStake: bigint;
   creatorBond: bigint;
-  resolved: boolean;
+  state: number;
+  proposedOutcome: number;
   result: number;
-  quorum: bigint;
-  yesVotes: bigint;
-  noVotes: bigint;
-  invalidVotes: bigint;
+  proposer: string;
+  disputer: string;
+  yesVoteWeight: bigint;
+  noVoteWeight: bigint;
+  invalidVoteWeight: bigint;
   slashPool: bigint;
-  winningResolverCount: bigint;
+  winningVoteWeight: bigint;
+  proposerBondClaimed: boolean;
+  disputerBondClaimed: boolean;
 }
 
 interface UserState {
   yesStake: bigint;
   noStake: bigint;
   claimed: boolean;
-  resolverCommitted: boolean;
-  resolverRevealed: boolean;
-  resolverRewardClaimed: boolean;
-  resolverVote: number;
+  vote: number;        // 0 = none
+  voteWeight: bigint;
+  oracleClaimed: boolean;
 }
 
-function fmtTimestamp(t: bigint): string {
-  return new Date(Number(t) * 1000).toLocaleString();
-}
-
-function countdown(target: bigint, now: number): string {
-  const s = Number(target) - now;
-  if (s <= 0) return "now";
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return `${h}h ${m}m ${sec}s`;
-}
-
-type Phase = "Staking" | "Committing" | "Revealing" | "Finalizable" | "Resolved";
-function phaseOf(m: FullMarket, now: number): Phase {
-  if (m.resolved) return "Resolved";
-  if (now < Number(m.resolutionTime)) return "Staking";
-  if (now < Number(m.commitDeadline)) return "Committing";
-  if (now < Number(m.revealDeadline)) return "Revealing";
-  return "Finalizable";
-}
+const stateStyle: Record<number, string> = {
+  [State.Trading]:  "bg-blue-500/20 text-blue-300",
+  [State.Proposed]: "bg-amber-500/20 text-amber-300",
+  [State.Disputed]: "bg-rose-500/20 text-rose-300",
+  [State.Resolved]: "bg-emerald-500/20 text-emerald-300",
+  [State.Expired]:  "bg-slate-500/20 text-slate-300",
+};
 
 export default function MarketDetail({ wallet }: { wallet: WalletState }) {
   const { id } = useParams<{ id: string }>();
@@ -75,122 +74,100 @@ export default function MarketDetail({ wallet }: { wallet: WalletState }) {
 
   const refresh = useCallback(async () => {
     try {
-      const m = await wallet.readContract.markets(marketId);
+      const m = await wallet.market.markets(marketId);
       setMarket({
         creator: m.creator,
         question: m.question,
-        resolutionTime: m.resolutionTime,
-        commitDeadline: m.commitDeadline,
-        revealDeadline: m.revealDeadline,
+        tradingDeadline: m.tradingDeadline,
+        proposalDeadline: m.proposalDeadline,
+        disputeDeadline: m.disputeDeadline,
+        voteDeadline: m.voteDeadline,
         totalYesStake: m.totalYesStake,
         totalNoStake: m.totalNoStake,
         creatorBond: m.creatorBond,
-        resolved: m.resolved,
+        state: Number(m.state),
+        proposedOutcome: Number(m.proposedOutcome),
         result: Number(m.result),
-        quorum: m.quorum,
-        yesVotes: m.yesVotes,
-        noVotes: m.noVotes,
-        invalidVotes: m.invalidVotes,
+        proposer: m.proposer,
+        disputer: m.disputer,
+        yesVoteWeight: m.yesVoteWeight,
+        noVoteWeight: m.noVoteWeight,
+        invalidVoteWeight: m.invalidVoteWeight,
         slashPool: m.slashPool,
-        winningResolverCount: m.winningResolverCount,
+        winningVoteWeight: m.winningVoteWeight,
+        proposerBondClaimed: m.proposerBondClaimed,
+        disputerBondClaimed: m.disputerBondClaimed,
       });
       if (wallet.account) {
-        const [y, n, c, ri] = await Promise.all([
-          wallet.readContract.yesStakes(marketId, wallet.account),
-          wallet.readContract.noStakes(marketId, wallet.account),
-          wallet.readContract.claimed(marketId, wallet.account),
-          wallet.readContract.resolverInfo(marketId, wallet.account),
+        const [y, n, c, v, vw, oc] = await Promise.all([
+          wallet.market.yesStakes(marketId, wallet.account),
+          wallet.market.noStakes(marketId, wallet.account),
+          wallet.market.claimed(marketId, wallet.account),
+          wallet.market.oracleVote(marketId, wallet.account),
+          wallet.market.oracleVoteWeight(marketId, wallet.account),
+          wallet.market.oracleClaimed(marketId, wallet.account),
         ]);
         setUser({
-          yesStake: y,
-          noStake: n,
-          claimed: c,
-          resolverCommitted: ri.committed,
-          resolverRevealed: ri.revealed,
-          resolverRewardClaimed: ri.rewardClaimed,
-          resolverVote: Number(ri.revealedVote),
+          yesStake: y, noStake: n, claimed: c,
+          vote: Number(v), voteWeight: vw, oracleClaimed: oc,
         });
       } else {
         setUser(null);
       }
-    } catch (e) {
-      console.error(e);
-    }
-  }, [marketId, wallet.readContract, wallet.account]);
+    } catch (e) { console.error(e); }
+  }, [marketId, wallet.market, wallet.account]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  async function finalize() {
-    if (!wallet.writeContract) return toast.error("Connect wallet");
+  async function call(method: string, label: string) {
+    if (!wallet.marketWrite) return toast.error("Connect wallet");
     setBusy(true);
-    const t = toast.loading("Finalizing market…");
+    const t = toast.loading(`${label}…`);
     try {
-      const tx = await wallet.writeContract.finalizeMarket(marketId);
+      const tx = await (wallet.marketWrite as any)[method](marketId);
       await tx.wait();
-      toast.success("Market finalized", { id: t });
+      toast.success(label, { id: t });
       refresh();
     } catch (err: any) {
       toast.error(err?.shortMessage || err?.reason || err?.message || "Failed", { id: t });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function claim() {
-    if (!wallet.writeContract) return toast.error("Connect wallet");
-    setBusy(true);
-    const t = toast.loading("Claiming winnings…");
-    try {
-      const tx = await wallet.writeContract.claimWinnings(marketId);
-      await tx.wait();
-      toast.success("Winnings claimed", { id: t });
-      refresh();
-    } catch (err: any) {
-      toast.error(err?.shortMessage || err?.reason || err?.message || "Failed", { id: t });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function claimResolver() {
-    if (!wallet.writeContract) return toast.error("Connect wallet");
-    setBusy(true);
-    const t = toast.loading("Claiming resolver reward…");
-    try {
-      const tx = await wallet.writeContract.claimResolverReward(marketId);
-      await tx.wait();
-      toast.success("Resolver reward claimed", { id: t });
-      refresh();
-    } catch (err: any) {
-      toast.error(err?.shortMessage || err?.reason || err?.message || "Failed", { id: t });
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   }
 
   if (!market) return <p className="text-slate-400">Loading market…</p>;
 
-  const phase = phaseOf(market, now);
-  const total = market.totalYesStake + market.totalNoStake;
-  const yesPct = total === 0n ? 50 : Number((market.totalYesStake * 100n) / total);
+  // What action is currently available?
+  const canPropose = market.state === State.Trading && now >= Number(market.tradingDeadline) && now < Number(market.proposalDeadline);
+  const canDispute = market.state === State.Proposed && now < Number(market.disputeDeadline);
+  const canVote    = market.state === State.Disputed && now < Number(market.voteDeadline);
+  const canFinalize =
+    (market.state === State.Trading  && now >= Number(market.proposalDeadline)) ||
+    (market.state === State.Proposed && now >= Number(market.disputeDeadline)) ||
+    (market.state === State.Disputed && now >= Number(market.voteDeadline));
 
-  const userStakedOnWinner =
-    user &&
-    market.resolved &&
-    ((market.result === Outcome.YES && user.yesStake > 0n) ||
-     (market.result === Outcome.NO && user.noStake > 0n) ||
-     (market.result === Outcome.INVALID && (user.yesStake + user.noStake) > 0n));
-  const canClaimWin = userStakedOnWinner && user && !user.claimed;
+  const isResolved = market.state === State.Resolved || market.state === State.Expired;
 
-  const isWinningResolver =
-    user &&
-    market.resolved &&
-    user.resolverRevealed &&
-    !user.resolverRewardClaimed &&
-    (
-      (market.result === Outcome.INVALID && market.winningResolverCount === 0n) ||
-      user.resolverVote === market.result
-    );
+  const userStakedOnWinner = user && isResolved && (
+    (market.state === State.Expired)                              ? (user.yesStake + user.noStake) > 0n :
+    (market.result === Outcome.YES)                               ? user.yesStake > 0n :
+    (market.result === Outcome.NO)                                ? user.noStake > 0n :
+    /* INVALID */                                                   (user.yesStake + user.noStake) > 0n
+  );
+
+  const isProposer = !!user && wallet.account?.toLowerCase() === market.proposer.toLowerCase();
+  const isDisputer = !!user && market.disputer !== ethers.ZeroAddress &&
+    wallet.account?.toLowerCase() === market.disputer.toLowerCase();
+
+  const proposerCanClaim =
+    isProposer && market.state === State.Resolved && !market.proposerBondClaimed &&
+    (market.disputer === ethers.ZeroAddress || market.proposedOutcome === market.result);
+  const disputerCanClaim =
+    isDisputer && market.state === State.Resolved && !market.disputerBondClaimed &&
+    market.proposedOutcome !== market.result;
+
+  const oracleCanClaim =
+    !!user && market.state === State.Resolved &&
+    user.vote !== 0 && user.vote === market.result &&
+    !user.oracleClaimed && market.winningVoteWeight > 0n;
 
   return (
     <div className="space-y-6">
@@ -199,16 +176,14 @@ export default function MarketDetail({ wallet }: { wallet: WalletState }) {
       </div>
 
       <div className="card">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <h2 className="text-xl font-semibold leading-snug">{market.question}</h2>
-            <div className="text-sm text-slate-400 mt-1">Market #{marketId.toString()} • Phase: {phase}</div>
+            <div className="text-sm text-slate-400 mt-1">
+              Market #{marketId.toString()} · created by {shortAddr(market.creator)}
+            </div>
           </div>
-          {market.resolved && (
-            <span className="badge bg-emerald-500/20 text-emerald-300">
-              {outcomeLabel(market.result)}
-            </span>
-          )}
+          <span className={`badge ${stateStyle[market.state]}`}>{stateLabel(market.state)}</span>
         </div>
 
         <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
@@ -225,74 +200,68 @@ export default function MarketDetail({ wallet }: { wallet: WalletState }) {
             <div className="font-mono">{ethers.formatEther(market.creatorBond)} ETH</div>
           </div>
           <div>
-            <div className="text-slate-400">Quorum</div>
-            <div className="font-mono">{market.quorum.toString()}</div>
+            <div className="text-slate-400">Slash pool</div>
+            <div className="font-mono">{ethers.formatEther(market.slashPool)} ETH</div>
           </div>
         </div>
 
-        <div className="mt-4">
-          <div className="flex justify-between text-xs text-slate-300 mb-1">
-            <span>YES {yesPct}%</span><span>NO {100 - yesPct}%</span>
-          </div>
-          <div className="h-2 rounded bg-slate-700 overflow-hidden">
-            <div className="h-full bg-emerald-500" style={{ width: `${yesPct}%` }} />
-          </div>
+        <div className="mt-4 grid md:grid-cols-2 gap-3 text-xs text-slate-400">
+          <div>Trading closes: {fmtTimestamp(market.tradingDeadline)}<br/>
+               (<span className="text-slate-200">{countdown(market.tradingDeadline, now)}</span>)</div>
+          <div>Proposal deadline: {fmtTimestamp(market.proposalDeadline)}<br/>
+               (<span className="text-slate-200">{countdown(market.proposalDeadline, now)}</span>)</div>
+          {market.disputeDeadline > 0n && (
+            <div>Dispute closes: {fmtTimestamp(market.disputeDeadline)}<br/>
+                 (<span className="text-slate-200">{countdown(market.disputeDeadline, now)}</span>)</div>
+          )}
+          {market.voteDeadline > 0n && (
+            <div>Vote closes: {fmtTimestamp(market.voteDeadline)}<br/>
+                 (<span className="text-slate-200">{countdown(market.voteDeadline, now)}</span>)</div>
+          )}
         </div>
 
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-slate-400">
-          <div>Stake closes: {fmtTimestamp(market.resolutionTime)}<br/>(<span className="text-slate-200">{countdown(market.resolutionTime, now)}</span>)</div>
-          <div>Commit closes: {fmtTimestamp(market.commitDeadline)}<br/>(<span className="text-slate-200">{countdown(market.commitDeadline, now)}</span>)</div>
-          <div>Reveal closes: {fmtTimestamp(market.revealDeadline)}<br/>(<span className="text-slate-200">{countdown(market.revealDeadline, now)}</span>)</div>
-        </div>
-
-        {market.resolved && (
-          <div className="mt-4 text-sm text-slate-300">
-            Reveal tally — YES: {market.yesVotes.toString()}, NO: {market.noVotes.toString()}, INVALID: {market.invalidVotes.toString()}
-            <br/>Slash pool: {ethers.formatEther(market.slashPool)} ETH • Winning resolvers: {market.winningResolverCount.toString()}
+        {market.state >= State.Proposed && (
+          <div className="mt-4 text-sm text-slate-300 border-t border-slate-700 pt-3">
+            <div>Proposed outcome: <strong>{outcomeLabel(market.proposedOutcome)}</strong> by {shortAddr(market.proposer)}</div>
+            {market.disputer !== ethers.ZeroAddress && (
+              <div className="mt-1">Disputed by: {shortAddr(market.disputer)}</div>
+            )}
+            {market.state >= State.Disputed && (
+              <div className="mt-1 text-xs">
+                Vote weights — YES {ethers.formatEther(market.yesVoteWeight)},
+                {" "}NO {ethers.formatEther(market.noVoteWeight)},
+                {" "}INVALID {ethers.formatEther(market.invalidVoteWeight)}
+              </div>
+            )}
+            {isResolved && (
+              <div className="mt-1">Final result: <strong className="text-emerald-400">{outcomeLabel(market.result)}</strong></div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Action panel by phase */}
+      {/* Action panels by phase */}
       <div className="grid md:grid-cols-2 gap-4">
-        {phase === "Staking" && (
+        {market.state === State.Trading && now < Number(market.tradingDeadline) && (
           <StakePanel wallet={wallet} marketId={marketId} onDone={refresh} />
         )}
-        {phase === "Committing" && !user?.resolverCommitted && (
-          <CommitPanel wallet={wallet} marketId={marketId} onDone={refresh} />
-        )}
-        {phase === "Committing" && user?.resolverCommitted && (
-          <div className="card">
-            <h3 className="font-semibold mb-2">Commitment submitted</h3>
-            <p className="text-sm text-slate-400">
-              Wait for the reveal phase to disclose your vote.
-            </p>
-          </div>
-        )}
-        {phase === "Revealing" && user?.resolverCommitted && !user?.resolverRevealed && (
-          <RevealPanel wallet={wallet} marketId={marketId} onDone={refresh} />
-        )}
-        {phase === "Revealing" && user?.resolverRevealed && (
-          <div className="card">
-            <h3 className="font-semibold mb-2">Vote revealed</h3>
-            <p className="text-sm text-slate-400">
-              Your vote is recorded. Wait for the reveal window to close, then anyone can finalize the market.
-            </p>
-          </div>
-        )}
-        {phase === "Finalizable" && (
+        {canPropose && <ProposePanel wallet={wallet} marketId={marketId} onDone={refresh} />}
+        {canDispute && <DisputePanel wallet={wallet} marketId={marketId} onDone={refresh} />}
+        {canVote    && <VotePanel    wallet={wallet} marketId={marketId} onDone={refresh} />}
+        {canFinalize && (
           <div className="card">
             <h3 className="font-semibold mb-2">Ready to finalize</h3>
             <p className="text-sm text-slate-400 mb-3">
-              Reveal window is over. Anyone may now tally the votes.
+              The relevant window has closed. Anyone can settle the market now.
             </p>
-            <button className="btn-primary w-full" disabled={busy} onClick={finalize}>
+            <button className="btn-primary w-full" disabled={busy}
+                    onClick={() => call("finalizeMarket", "Finalizing")}>
               Finalize market
             </button>
           </div>
         )}
 
-        {/* Your stake summary always visible */}
+        {/* Stake summary + claim */}
         {user && (user.yesStake > 0n || user.noStake > 0n) && (
           <div className="card">
             <h3 className="font-semibold mb-2">Your stake</h3>
@@ -300,37 +269,51 @@ export default function MarketDetail({ wallet }: { wallet: WalletState }) {
               <div>YES: <span className="font-mono">{ethers.formatEther(user.yesStake)} ETH</span></div>
               <div>NO:  <span className="font-mono">{ethers.formatEther(user.noStake)} ETH</span></div>
             </div>
-            {market.resolved && canClaimWin && (
-              <button className="btn-success w-full mt-3" disabled={busy} onClick={claim}>
+            {isResolved && userStakedOnWinner && !user.claimed && (
+              <button className="btn-success w-full mt-3" disabled={busy}
+                      onClick={() => call("claimWinnings", "Claiming winnings")}>
                 Claim winnings
               </button>
             )}
-            {market.resolved && user.claimed && (
+            {isResolved && user.claimed && (
               <p className="text-xs text-slate-400 mt-2">Already claimed.</p>
             )}
           </div>
         )}
 
-        {/* Resolver reward */}
-        {user?.resolverCommitted && market.resolved && (
+        {/* Proposer bond claim */}
+        {proposerCanClaim && (
           <div className="card">
-            <h3 className="font-semibold mb-2">Resolver reward</h3>
-            {user.resolverRevealed ? (
-              <div className="text-sm space-y-1">
-                <div>You revealed <strong>{outcomeLabel(user.resolverVote)}</strong></div>
-                <div>Market result: <strong>{outcomeLabel(market.result)}</strong></div>
-              </div>
-            ) : (
-              <p className="text-sm text-rose-400">You did not reveal — collateral slashed.</p>
-            )}
-            {isWinningResolver && (
-              <button className="btn-success w-full mt-3" disabled={busy} onClick={claimResolver}>
-                Claim resolver reward
-              </button>
-            )}
-            {user.resolverRewardClaimed && (
-              <p className="text-xs text-slate-400 mt-2">Already claimed.</p>
-            )}
+            <h3 className="font-semibold mb-2">Proposer bond</h3>
+            <button className="btn-success w-full" disabled={busy}
+                    onClick={() => call("claimProposerBond", "Claiming proposer bond")}>
+              Claim proposer bond
+            </button>
+          </div>
+        )}
+
+        {/* Disputer bond claim */}
+        {disputerCanClaim && (
+          <div className="card">
+            <h3 className="font-semibold mb-2">Disputer bond</h3>
+            <button className="btn-success w-full" disabled={busy}
+                    onClick={() => call("claimDisputerBond", "Claiming disputer bond")}>
+              Claim disputer bond
+            </button>
+          </div>
+        )}
+
+        {/* Oracle reward claim */}
+        {oracleCanClaim && (
+          <div className="card">
+            <h3 className="font-semibold mb-2">Oracle reward</h3>
+            <p className="text-sm text-slate-400 mb-3">
+              Your weight {ethers.formatEther(user.voteWeight)} ETH voted with the final outcome.
+            </p>
+            <button className="btn-success w-full" disabled={busy}
+                    onClick={() => call("claimOracleReward", "Claiming oracle reward")}>
+              Claim oracle reward
+            </button>
           </div>
         )}
       </div>

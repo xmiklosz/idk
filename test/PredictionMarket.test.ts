@@ -1,508 +1,431 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
-import { PredictionMarket } from "../typechain-types";
 
 const ONE_HOUR = 60 * 60;
-const COLLATERAL = ethers.parseEther("0.01");
-const BOND = ethers.parseEther("0.1");
+const ONE_DAY = 24 * ONE_HOUR;
+const PROPOSAL_BOND = ethers.parseEther("0.05");
+const DISPUTE_BOND  = ethers.parseEther("0.05");
+const MIN_STAKE     = ethers.parseEther("0.05");
+const BOND          = ethers.parseEther("0.1");
 
-enum Outcome {
-  UNRESOLVED = 0,
-  YES = 1,
-  NO = 2,
-  INVALID = 3,
-}
+enum Outcome { UNRESOLVED = 0, YES = 1, NO = 2, INVALID = 3 }
+enum State   { Trading = 0, Proposed = 1, Disputed = 2, Resolved = 3, Expired = 4 }
 
-function makeSalt(seed: string): string {
-  return ethers.keccak256(ethers.toUtf8Bytes(seed));
-}
-
-function commitmentHash(outcome: Outcome, salt: string): string {
-  return ethers.solidityPackedKeccak256(["uint8", "bytes32"], [outcome, salt]);
-}
-
-async function deploy() {
-  const Factory = await ethers.getContractFactory("PredictionMarket");
-  const market = (await Factory.deploy()) as unknown as PredictionMarket;
+async function deployStack() {
+  const Registry = await ethers.getContractFactory("OracleRegistry");
+  const registry = await Registry.deploy();
+  await registry.waitForDeployment();
+  const Market = await ethers.getContractFactory("PredictionMarket");
+  const market = await Market.deploy(await registry.getAddress());
   await market.waitForDeployment();
-  return market;
+  await (await registry.approveSlasher(await market.getAddress())).wait();
+  return { registry, market };
 }
 
-async function createDefaultMarket(market: PredictionMarket, creator: any, quorum = 3n) {
+async function createDefaultMarket(market: any, creator: any) {
   const now = await time.latest();
-  const resolutionTime = now + ONE_HOUR;
-  const commitDeadline = resolutionTime + ONE_HOUR;
-  const revealDeadline = commitDeadline + ONE_HOUR;
-  const tx = await market
-    .connect(creator)
-    .createMarket(
-      "Will ETH > $3000 on June 1?",
-      resolutionTime,
-      commitDeadline,
-      revealDeadline,
-      quorum,
-      { value: BOND }
-    );
-  await tx.wait();
-  return { id: 0n, resolutionTime, commitDeadline, revealDeadline };
+  const tradingDeadline  = now + ONE_HOUR;
+  const proposalDeadline = tradingDeadline + ONE_HOUR;
+  await (await market.connect(creator).createMarket(
+    "Will ETH > $3000 on June 1?",
+    tradingDeadline,
+    proposalDeadline,
+    { value: BOND }
+  )).wait();
+  return { id: 0n, tradingDeadline, proposalDeadline };
 }
 
-describe("PredictionMarket", () => {
-  describe("createMarket", () => {
+describe("OracleRegistry", () => {
+  it("registers and tracks oracles", async () => {
+    const { registry } = await deployStack();
+    const [, a, b] = await ethers.getSigners();
+    await expect(registry.connect(a).register({ value: MIN_STAKE }))
+      .to.emit(registry, "OracleRegistered").withArgs(a.address, MIN_STAKE);
+    await registry.connect(b).register({ value: MIN_STAKE * 2n });
+    expect(await registry.oracleCount()).to.equal(2n);
+    expect(await registry.totalStake()).to.equal(MIN_STAKE * 3n);
+    expect(await registry.isOracle(a.address)).to.be.true;
+    expect(await registry.stakeOf(b.address)).to.equal(MIN_STAKE * 2n);
+  });
+
+  it("rejects below-min stake on register", async () => {
+    const { registry } = await deployStack();
+    const [, a] = await ethers.getSigners();
+    await expect(registry.connect(a).register({ value: MIN_STAKE - 1n }))
+      .to.be.revertedWithCustomError(registry, "InsufficientStake");
+  });
+
+  it("topUp increases stake; unregister returns funds", async () => {
+    const { registry } = await deployStack();
+    const [, a] = await ethers.getSigners();
+    await registry.connect(a).register({ value: MIN_STAKE });
+    await registry.connect(a).topUp({ value: MIN_STAKE });
+    expect(await registry.stakeOf(a.address)).to.equal(MIN_STAKE * 2n);
+
+    const before = await ethers.provider.getBalance(a.address);
+    const tx = await registry.connect(a).unregister();
+    const r = await tx.wait();
+    const after = await ethers.provider.getBalance(a.address);
+    expect(after - before + r!.gasUsed * r!.gasPrice).to.equal(MIN_STAKE * 2n);
+    expect(await registry.isOracle(a.address)).to.be.false;
+  });
+
+  it("only owner can approve a slasher", async () => {
+    const { registry } = await deployStack();
+    const [, a] = await ethers.getSigners();
+    await expect(registry.connect(a).approveSlasher(a.address))
+      .to.be.revertedWithCustomError(registry, "NotOwner");
+  });
+
+  it("only approved slasher can slash", async () => {
+    const { registry } = await deployStack();
+    const [, a, b] = await ethers.getSigners();
+    await registry.connect(a).register({ value: MIN_STAKE });
+    await expect(registry.connect(b).slash(a.address, MIN_STAKE, b.address))
+      .to.be.revertedWithCustomError(registry, "NotSlasher");
+  });
+});
+
+describe("PredictionMarket — Optimistic Oracle", () => {
+  describe("creation & staking", () => {
     it("creates a market and emits MarketCreated", async () => {
-      const market = await deploy();
+      const { market } = await deployStack();
       const [creator] = await ethers.getSigners();
       const now = await time.latest();
-      const rt = now + ONE_HOUR;
-      const cd = rt + ONE_HOUR;
-      const rd = cd + ONE_HOUR;
-
-      await expect(
-        market.connect(creator).createMarket("Q?", rt, cd, rd, 3, { value: BOND })
-      )
-        .to.emit(market, "MarketCreated")
-        .withArgs(0n, creator.address, "Q?", rt);
-
-      expect(await market.marketCount()).to.equal(1n);
+      const td = now + ONE_HOUR;
+      const pd = td + ONE_HOUR;
+      await expect(market.connect(creator).createMarket("Q?", td, pd, { value: BOND }))
+        .to.emit(market, "MarketCreated").withArgs(0n, creator.address, "Q?", td);
       const m = await market.markets(0n);
-      expect(m.creator).to.equal(creator.address);
+      expect(m.state).to.equal(State.Trading);
       expect(m.creatorBond).to.equal(BOND);
-      expect(m.quorum).to.equal(3n);
     });
 
-    it("reverts on empty question", async () => {
-      const market = await deploy();
+    it("rejects invalid create params", async () => {
+      const { market } = await deployStack();
+      const [c] = await ethers.getSigners();
       const now = await time.latest();
-      await expect(
-        market.createMarket("", now + ONE_HOUR, now + 2 * ONE_HOUR, now + 3 * ONE_HOUR, 1, { value: BOND })
-      ).to.be.revertedWith("empty question");
+      await expect(market.connect(c).createMarket("", now + 100, now + 200, { value: BOND }))
+        .to.be.revertedWith("empty question");
+      await expect(market.connect(c).createMarket("Q", now - 1, now + 200, { value: BOND }))
+        .to.be.revertedWith("tradingDeadline in past");
+      await expect(market.connect(c).createMarket("Q", now + 100, now + 100, { value: BOND }))
+        .to.be.revertedWith("proposalDeadline <= tradingDeadline");
+      await expect(market.connect(c).createMarket("Q", now + 100, now + 200))
+        .to.be.revertedWith("no creator bond");
     });
 
-    it("reverts when resolutionTime in past", async () => {
-      const market = await deploy();
-      const now = await time.latest();
-      await expect(
-        market.createMarket("Q?", now - 10, now + ONE_HOUR, now + 2 * ONE_HOUR, 1, { value: BOND })
-      ).to.be.revertedWith("resolutionTime in past");
-    });
-
-    it("reverts when commitDeadline <= resolutionTime", async () => {
-      const market = await deploy();
-      const now = await time.latest();
-      await expect(
-        market.createMarket("Q?", now + ONE_HOUR, now + ONE_HOUR, now + 2 * ONE_HOUR, 1, { value: BOND })
-      ).to.be.revertedWith("commitDeadline <= resolutionTime");
-    });
-
-    it("reverts when revealDeadline <= commitDeadline", async () => {
-      const market = await deploy();
-      const now = await time.latest();
-      await expect(
-        market.createMarket("Q?", now + ONE_HOUR, now + 2 * ONE_HOUR, now + 2 * ONE_HOUR, 1, { value: BOND })
-      ).to.be.revertedWith("revealDeadline <= commitDeadline");
-    });
-
-    it("reverts when quorum is zero", async () => {
-      const market = await deploy();
-      const now = await time.latest();
-      await expect(
-        market.createMarket("Q?", now + ONE_HOUR, now + 2 * ONE_HOUR, now + 3 * ONE_HOUR, 0, { value: BOND })
-      ).to.be.revertedWith("quorum zero");
-    });
-
-    it("reverts when no creator bond", async () => {
-      const market = await deploy();
-      const now = await time.latest();
-      await expect(
-        market.createMarket("Q?", now + ONE_HOUR, now + 2 * ONE_HOUR, now + 3 * ONE_HOUR, 1)
-      ).to.be.revertedWith("no creator bond");
-    });
-  });
-
-  describe("staking", () => {
-    it("stakes YES and NO before resolution time", async () => {
-      const market = await deploy();
-      const [creator, alice, bob] = await ethers.getSigners();
-      await createDefaultMarket(market, creator);
-
-      await expect(market.connect(alice).stakeYes(0n, { value: ethers.parseEther("1") }))
-        .to.emit(market, "Staked")
-        .withArgs(0n, alice.address, true, ethers.parseEther("1"));
-
-      await market.connect(bob).stakeNo(0n, { value: ethers.parseEther("2") });
-
-      const m = await market.markets(0n);
-      expect(m.totalYesStake).to.equal(ethers.parseEther("1"));
-      expect(m.totalNoStake).to.equal(ethers.parseEther("2"));
-      expect(await market.yesStakes(0n, alice.address)).to.equal(ethers.parseEther("1"));
-      expect(await market.noStakes(0n, bob.address)).to.equal(ethers.parseEther("2"));
-    });
-
-    it("reverts staking on a non-existent market", async () => {
-      const market = await deploy();
-      await expect(market.stakeYes(99n, { value: 1n })).to.be.revertedWith("no market");
-      await expect(market.stakeNo(99n, { value: 1n })).to.be.revertedWith("no market");
-    });
-
-    it("reverts staking after resolutionTime", async () => {
-      const market = await deploy();
+    it("staking opens before tradingDeadline, closed after", async () => {
+      const { market } = await deployStack();
       const [creator, alice] = await ethers.getSigners();
-      const { resolutionTime } = await createDefaultMarket(market, creator);
-      await time.increaseTo(resolutionTime + 1);
-      await expect(
-        market.connect(alice).stakeYes(0n, { value: 1n })
-      ).to.be.revertedWith("staking closed");
-      await expect(
-        market.connect(alice).stakeNo(0n, { value: 1n })
-      ).to.be.revertedWith("staking closed");
-    });
-
-    it("reverts on zero-value stake", async () => {
-      const market = await deploy();
-      const [creator, alice] = await ethers.getSigners();
-      await createDefaultMarket(market, creator);
-      await expect(market.connect(alice).stakeYes(0n)).to.be.revertedWith("zero stake");
+      const { tradingDeadline } = await createDefaultMarket(market, creator);
+      await market.connect(alice).stakeYes(0n, { value: ethers.parseEther("1") });
+      await time.increaseTo(tradingDeadline + 1);
+      await expect(market.connect(alice).stakeNo(0n, { value: ethers.parseEther("1") }))
+        .to.be.revertedWith("trading closed");
     });
   });
 
-  describe("commit-reveal", () => {
-    it("rejects commit before resolutionTime", async () => {
-      const market = await deploy();
-      const [creator, r1] = await ethers.getSigners();
+  describe("propose / dispute lifecycle", () => {
+    it("rejects propose before tradingDeadline", async () => {
+      const { market } = await deployStack();
+      const [creator, p] = await ethers.getSigners();
       await createDefaultMarket(market, creator);
-      const c = commitmentHash(Outcome.YES, makeSalt("a"));
-      await expect(
-        market.connect(r1).commitResolution(0n, c, { value: COLLATERAL })
-      ).to.be.revertedWith("commit not open");
+      await expect(market.connect(p).proposeOutcome(0n, Outcome.YES, { value: PROPOSAL_BOND }))
+        .to.be.revertedWith("propose not open");
     });
 
-    it("requires correct collateral", async () => {
-      const market = await deploy();
-      const [creator, r1] = await ethers.getSigners();
-      const { resolutionTime } = await createDefaultMarket(market, creator);
-      await time.increaseTo(resolutionTime + 1);
-      const c = commitmentHash(Outcome.YES, makeSalt("a"));
-      await expect(
-        market.connect(r1).commitResolution(0n, c, { value: ethers.parseEther("0.005") })
-      ).to.be.revertedWith("bad collateral");
+    it("rejects bad proposal bond", async () => {
+      const { market } = await deployStack();
+      const [creator, p] = await ethers.getSigners();
+      const { tradingDeadline } = await createDefaultMarket(market, creator);
+      await time.increaseTo(tradingDeadline + 1);
+      await expect(market.connect(p).proposeOutcome(0n, Outcome.YES, { value: PROPOSAL_BOND - 1n }))
+        .to.be.revertedWith("bad proposal bond");
     });
 
-    it("rejects double commit", async () => {
-      const market = await deploy();
-      const [creator, r1] = await ethers.getSigners();
-      const { resolutionTime } = await createDefaultMarket(market, creator);
-      await time.increaseTo(resolutionTime + 1);
-      const c = commitmentHash(Outcome.YES, makeSalt("a"));
-      await market.connect(r1).commitResolution(0n, c, { value: COLLATERAL });
-      await expect(
-        market.connect(r1).commitResolution(0n, c, { value: COLLATERAL })
-      ).to.be.revertedWith("already committed");
+    it("rejects propose of UNRESOLVED outcome", async () => {
+      const { market } = await deployStack();
+      const [creator, p] = await ethers.getSigners();
+      const { tradingDeadline } = await createDefaultMarket(market, creator);
+      await time.increaseTo(tradingDeadline + 1);
+      await expect(market.connect(p).proposeOutcome(0n, Outcome.UNRESOLVED, { value: PROPOSAL_BOND }))
+        .to.be.revertedWith("bad outcome");
     });
 
-    it("rejects reveal before commitDeadline", async () => {
-      const market = await deploy();
-      const [creator, r1] = await ethers.getSigners();
-      const { resolutionTime } = await createDefaultMarket(market, creator);
-      await time.increaseTo(resolutionTime + 1);
-      const salt = makeSalt("a");
-      const c = commitmentHash(Outcome.YES, salt);
-      await market.connect(r1).commitResolution(0n, c, { value: COLLATERAL });
-      await expect(
-        market.connect(r1).revealResolution(0n, Outcome.YES, salt)
-      ).to.be.revertedWith("reveal not open");
-    });
+    it("undisputed proposal -> proposed outcome stands; proposer reclaims bond", async () => {
+      const { market } = await deployStack();
+      const [creator, alice, p] = await ethers.getSigners();
+      const { tradingDeadline } = await createDefaultMarket(market, creator);
+      await market.connect(alice).stakeYes(0n, { value: ethers.parseEther("1") });
+      await time.increaseTo(tradingDeadline + 1);
+      await market.connect(p).proposeOutcome(0n, Outcome.YES, { value: PROPOSAL_BOND });
 
-    it("rejects reveal with wrong salt", async () => {
-      const market = await deploy();
-      const [creator, r1] = await ethers.getSigners();
-      const { resolutionTime, commitDeadline } = await createDefaultMarket(market, creator);
-      await time.increaseTo(resolutionTime + 1);
-      const salt = makeSalt("a");
-      const c = commitmentHash(Outcome.YES, salt);
-      await market.connect(r1).commitResolution(0n, c, { value: COLLATERAL });
-      await time.increaseTo(commitDeadline + 1);
-      await expect(
-        market.connect(r1).revealResolution(0n, Outcome.YES, makeSalt("not-a"))
-      ).to.be.revertedWith("bad reveal");
-    });
-
-    it("rejects reveal with wrong outcome", async () => {
-      const market = await deploy();
-      const [creator, r1] = await ethers.getSigners();
-      const { resolutionTime, commitDeadline } = await createDefaultMarket(market, creator);
-      await time.increaseTo(resolutionTime + 1);
-      const salt = makeSalt("a");
-      const c = commitmentHash(Outcome.YES, salt);
-      await market.connect(r1).commitResolution(0n, c, { value: COLLATERAL });
-      await time.increaseTo(commitDeadline + 1);
-      await expect(
-        market.connect(r1).revealResolution(0n, Outcome.NO, salt)
-      ).to.be.revertedWith("bad reveal");
-    });
-
-    it("rejects reveal of UNRESOLVED outcome", async () => {
-      const market = await deploy();
-      const [creator, r1] = await ethers.getSigners();
-      const { resolutionTime, commitDeadline } = await createDefaultMarket(market, creator);
-      await time.increaseTo(resolutionTime + 1);
-      const salt = makeSalt("a");
-      const c = commitmentHash(Outcome.UNRESOLVED, salt);
-      await market.connect(r1).commitResolution(0n, c, { value: COLLATERAL });
-      await time.increaseTo(commitDeadline + 1);
-      await expect(
-        market.connect(r1).revealResolution(0n, Outcome.UNRESOLVED, salt)
-      ).to.be.revertedWith("bad outcome");
-    });
-
-    it("accepts valid reveal and emits event", async () => {
-      const market = await deploy();
-      const [creator, r1] = await ethers.getSigners();
-      const { resolutionTime, commitDeadline } = await createDefaultMarket(market, creator);
-      await time.increaseTo(resolutionTime + 1);
-      const salt = makeSalt("a");
-      const c = commitmentHash(Outcome.YES, salt);
-      await market.connect(r1).commitResolution(0n, c, { value: COLLATERAL });
-      await time.increaseTo(commitDeadline + 1);
-      await expect(market.connect(r1).revealResolution(0n, Outcome.YES, salt))
-        .to.emit(market, "Revealed")
-        .withArgs(0n, r1.address, Outcome.YES);
-    });
-
-    it("rejects double reveal", async () => {
-      const market = await deploy();
-      const [creator, r1] = await ethers.getSigners();
-      const { resolutionTime, commitDeadline } = await createDefaultMarket(market, creator);
-      await time.increaseTo(resolutionTime + 1);
-      const salt = makeSalt("a");
-      const c = commitmentHash(Outcome.YES, salt);
-      await market.connect(r1).commitResolution(0n, c, { value: COLLATERAL });
-      await time.increaseTo(commitDeadline + 1);
-      await market.connect(r1).revealResolution(0n, Outcome.YES, salt);
-      await expect(
-        market.connect(r1).revealResolution(0n, Outcome.YES, salt)
-      ).to.be.revertedWith("already revealed");
-    });
-  });
-
-  describe("finalization & payouts", () => {
-    async function setupVotedMarket(quorum: number, votes: Outcome[]) {
-      const market = await deploy();
-      const signers = await ethers.getSigners();
-      const [creator, alice, bob, ...resolvers] = signers;
-
-      const { resolutionTime, commitDeadline, revealDeadline } =
-        await createDefaultMarket(market, creator, BigInt(quorum));
-
-      // Stake from two stakers
-      await market.connect(alice).stakeYes(0n, { value: ethers.parseEther("3") });
-      await market.connect(bob).stakeNo(0n, { value: ethers.parseEther("1") });
-
-      // Commit phase
-      await time.increaseTo(resolutionTime + 1);
-      const salts: string[] = [];
-      for (let i = 0; i < votes.length; i++) {
-        const salt = makeSalt(`r${i}`);
-        salts.push(salt);
-        const c = commitmentHash(votes[i], salt);
-        await market.connect(resolvers[i]).commitResolution(0n, c, { value: COLLATERAL });
-      }
-
-      // Reveal phase
-      await time.increaseTo(commitDeadline + 1);
-      for (let i = 0; i < votes.length; i++) {
-        await market
-          .connect(resolvers[i])
-          .revealResolution(0n, votes[i], salts[i]);
-      }
-
-      await time.increaseTo(revealDeadline + 1);
-      return { market, creator, alice, bob, resolvers: resolvers.slice(0, votes.length) };
-    }
-
-    it("rejects finalize before revealDeadline", async () => {
-      const market = await deploy();
-      const [creator] = await ethers.getSigners();
-      await createDefaultMarket(market, creator);
-      await expect(market.finalizeMarket(0n)).to.be.revertedWith("reveal still open");
-    });
-
-    it("YES wins: stakers and winning resolvers paid out", async () => {
-      const { market, alice, bob, resolvers } = await setupVotedMarket(3, [
-        Outcome.YES,
-        Outcome.YES,
-        Outcome.NO, // minority - will be slashed
-      ]);
+      const m1 = await market.markets(0n);
+      await time.increaseTo(Number(m1.disputeDeadline) + 1);
 
       await expect(market.finalizeMarket(0n))
-        .to.emit(market, "MarketFinalized")
-        .withArgs(0n, Outcome.YES);
+        .to.emit(market, "MarketFinalized").withArgs(0n, Outcome.YES);
 
-      const m = await market.markets(0n);
-      expect(m.result).to.equal(Outcome.YES);
-      expect(m.winningResolverCount).to.equal(2n);
-      expect(m.slashPool).to.equal(COLLATERAL); // one minority slashed
+      const m2 = await market.markets(0n);
+      expect(m2.state).to.equal(State.Resolved);
+      expect(m2.result).to.equal(Outcome.YES);
 
-      // Alice (YES staker) claims
-      const aliceBefore = await ethers.provider.getBalance(alice.address);
-      const tx = await market.connect(alice).claimWinnings(0n);
-      const receipt = await tx.wait();
-      const gas = receipt!.gasUsed * receipt!.gasPrice;
-      const aliceAfter = await ethers.provider.getBalance(alice.address);
-      // Alice was the only YES staker and gets her stake + all losing pool.
-      const expectedExtra = m.totalNoStake + m.creatorBond + m.slashPool / 2n;
-      const expectedPayout = ethers.parseEther("3") + expectedExtra;
-      expect(aliceAfter - aliceBefore + gas).to.equal(expectedPayout);
+      const before = await ethers.provider.getBalance(p.address);
+      const tx = await market.connect(p).claimProposerBond(0n);
+      const r = await tx.wait();
+      const after = await ethers.provider.getBalance(p.address);
+      expect(after - before + r!.gasUsed * r!.gasPrice).to.equal(PROPOSAL_BOND);
 
-      // Bob (NO staker) cannot claim
-      await expect(market.connect(bob).claimWinnings(0n)).to.be.revertedWith("nothing to claim");
+      // double-claim rejected
+      await expect(market.connect(p).claimProposerBond(0n)).to.be.revertedWith("already claimed");
+    });
 
-      // Winning resolvers each get collateral + share of slash pool / 2
-      const r0Before = await ethers.provider.getBalance(resolvers[0].address);
-      const tx2 = await market.connect(resolvers[0]).claimResolverReward(0n);
+    it("disputed proposal: oracle vote flips outcome, disputer wins both bonds", async () => {
+      const { registry, market } = await deployStack();
+      const [creator, alice, bob, p, d, o1, o2, o3] = await ethers.getSigners();
+
+      await createDefaultMarket(market, creator);
+      await market.connect(alice).stakeYes(0n, { value: ethers.parseEther("3") });
+      await market.connect(bob).stakeNo(0n,  { value: ethers.parseEther("1") });
+
+      // Register 3 oracles — two will vote NO (true outcome), one YES (with proposer)
+      await registry.connect(o1).register({ value: MIN_STAKE });
+      await registry.connect(o2).register({ value: MIN_STAKE });
+      await registry.connect(o3).register({ value: MIN_STAKE });
+
+      const m0 = await market.markets(0n);
+      await time.increaseTo(Number(m0.tradingDeadline) + 1);
+
+      // Proposer falsely says YES; disputer challenges.
+      await market.connect(p).proposeOutcome(0n, Outcome.YES, { value: PROPOSAL_BOND });
+      await market.connect(d).disputeProposal(0n, { value: DISPUTE_BOND });
+
+      // Oracle vote: 2 NO, 1 YES → NO wins
+      await market.connect(o1).voteOnDispute(0n, Outcome.NO);
+      await market.connect(o2).voteOnDispute(0n, Outcome.NO);
+      await market.connect(o3).voteOnDispute(0n, Outcome.YES);
+
+      const m1 = await market.markets(0n);
+      await time.increaseTo(Number(m1.voteDeadline) + 1);
+
+      await expect(market.finalizeMarket(0n))
+        .to.emit(market, "MarketFinalized").withArgs(0n, Outcome.NO);
+
+      const m2 = await market.markets(0n);
+      expect(m2.result).to.equal(Outcome.NO);
+      expect(m2.slashPool).to.equal(MIN_STAKE);            // o3's stake fully slashed
+      expect(m2.winningVoteWeight).to.equal(MIN_STAKE * 2n);
+
+      // Proposer was wrong -> cannot claim
+      await expect(market.connect(p).claimProposerBond(0n)).to.be.revertedWith("proposer was wrong");
+
+      // Disputer was right -> gets both bonds
+      const dBefore = await ethers.provider.getBalance(d.address);
+      const tx = await market.connect(d).claimDisputerBond(0n);
+      const r = await tx.wait();
+      const dAfter = await ethers.provider.getBalance(d.address);
+      expect(dAfter - dBefore + r!.gasUsed * r!.gasPrice).to.equal(PROPOSAL_BOND + DISPUTE_BOND);
+
+      // Winning oracles each claim half-slash-pool / 2 (equal weights)
+      const expected = (m2.slashPool / 2n) * MIN_STAKE / m2.winningVoteWeight;
+      const oBefore = await ethers.provider.getBalance(o1.address);
+      const tx2 = await market.connect(o1).claimOracleReward(0n);
       const r2 = await tx2.wait();
-      const r0After = await ethers.provider.getBalance(resolvers[0].address);
-      const gas2 = r2!.gasUsed * r2!.gasPrice;
-      const expectedReward = COLLATERAL + (COLLATERAL / 2n) / 2n;
-      expect(r0After - r0Before + gas2).to.equal(expectedReward);
+      const oAfter = await ethers.provider.getBalance(o1.address);
+      expect(oAfter - oBefore + r2!.gasUsed * r2!.gasPrice).to.equal(expected);
 
-      // Minority resolver cannot claim
-      await expect(
-        market.connect(resolvers[2]).claimResolverReward(0n)
-      ).to.be.revertedWith("not a winning resolver");
+      // Losing oracle cannot claim
+      await expect(market.connect(o3).claimOracleReward(0n)).to.be.revertedWith("not winning vote");
+
+      // Bob staked NO (winning side) -> claims his stake + loser pool share
+      const bobStake = ethers.parseEther("1");
+      const totalNo = ethers.parseEther("1");
+      const stakerSlashShare = m2.slashPool / 2n;
+      const loserPool = ethers.parseEther("3") + stakerSlashShare + BOND;
+      const expectedBob = bobStake + (loserPool * bobStake) / totalNo;
+      const bBefore = await ethers.provider.getBalance(bob.address);
+      const tx3 = await market.connect(bob).claimWinnings(0n);
+      const r3 = await tx3.wait();
+      const bAfter = await ethers.provider.getBalance(bob.address);
+      expect(bAfter - bBefore + r3!.gasUsed * r3!.gasPrice).to.equal(expectedBob);
+
+      // Alice staked YES (losing side) -> cannot claim
+      await expect(market.connect(alice).claimWinnings(0n)).to.be.revertedWith("nothing to claim");
     });
 
-    it("double-claim is rejected", async () => {
-      const { market, alice } = await setupVotedMarket(3, [
-        Outcome.YES,
-        Outcome.YES,
-        Outcome.NO,
-      ]);
-      await market.finalizeMarket(0n);
-      await market.connect(alice).claimWinnings(0n);
-      await expect(market.connect(alice).claimWinnings(0n)).to.be.revertedWith("already claimed");
-    });
-
-    it("cannot finalize twice", async () => {
-      const { market } = await setupVotedMarket(3, [Outcome.YES, Outcome.YES, Outcome.YES]);
-      await market.finalizeMarket(0n);
-      await expect(market.finalizeMarket(0n)).to.be.revertedWith("already resolved");
-    });
-
-    it("cannot claim before finalize", async () => {
-      const market = await deploy();
-      const [creator, alice] = await ethers.getSigners();
+    it("disputed proposal but disputer was wrong: proposer takes both bonds", async () => {
+      const { registry, market } = await deployStack();
+      const [creator, , , p, d, o1, o2] = await ethers.getSigners();
       await createDefaultMarket(market, creator);
-      await expect(market.connect(alice).claimWinnings(0n)).to.be.revertedWith("not finalized");
-      await expect(market.connect(alice).claimResolverReward(0n)).to.be.revertedWith("not finalized");
+      await registry.connect(o1).register({ value: MIN_STAKE });
+      await registry.connect(o2).register({ value: MIN_STAKE });
+
+      const m0 = await market.markets(0n);
+      await time.increaseTo(Number(m0.tradingDeadline) + 1);
+      await market.connect(p).proposeOutcome(0n, Outcome.YES, { value: PROPOSAL_BOND });
+      await market.connect(d).disputeProposal(0n, { value: DISPUTE_BOND });
+      await market.connect(o1).voteOnDispute(0n, Outcome.YES);
+      await market.connect(o2).voteOnDispute(0n, Outcome.YES);
+
+      const m1 = await market.markets(0n);
+      await time.increaseTo(Number(m1.voteDeadline) + 1);
+      await market.finalizeMarket(0n);
+
+      const m2 = await market.markets(0n);
+      expect(m2.result).to.equal(Outcome.YES);
+
+      const before = await ethers.provider.getBalance(p.address);
+      const tx = await market.connect(p).claimProposerBond(0n);
+      const r = await tx.wait();
+      const after = await ethers.provider.getBalance(p.address);
+      expect(after - before + r!.gasUsed * r!.gasPrice).to.equal(PROPOSAL_BOND + DISPUTE_BOND);
+
+      await expect(market.connect(d).claimDisputerBond(0n)).to.be.revertedWith("disputer was wrong");
     });
 
-    it("quorum not met -> INVALID, stakers refunded with bond + slash pool", async () => {
-      // quorum is 3 but only 1 reveals
-      const market = await deploy();
-      const signers = await ethers.getSigners();
-      const [creator, alice, bob, r1, r2] = signers;
-      const { resolutionTime, commitDeadline, revealDeadline } =
-        await createDefaultMarket(market, creator, 3n);
+    it("non-oracle cannot vote", async () => {
+      const { market } = await deployStack();
+      const [creator, , , p, d, o] = await ethers.getSigners();
+      await createDefaultMarket(market, creator);
+      const m0 = await market.markets(0n);
+      await time.increaseTo(Number(m0.tradingDeadline) + 1);
+      await market.connect(p).proposeOutcome(0n, Outcome.YES, { value: PROPOSAL_BOND });
+      await market.connect(d).disputeProposal(0n, { value: DISPUTE_BOND });
+      await expect(market.connect(o).voteOnDispute(0n, Outcome.YES)).to.be.revertedWith("not oracle");
+    });
 
+    it("oracle cannot vote twice", async () => {
+      const { registry, market } = await deployStack();
+      const [creator, , , p, d, o] = await ethers.getSigners();
+      await createDefaultMarket(market, creator);
+      await registry.connect(o).register({ value: MIN_STAKE });
+      const m0 = await market.markets(0n);
+      await time.increaseTo(Number(m0.tradingDeadline) + 1);
+      await market.connect(p).proposeOutcome(0n, Outcome.YES, { value: PROPOSAL_BOND });
+      await market.connect(d).disputeProposal(0n, { value: DISPUTE_BOND });
+      await market.connect(o).voteOnDispute(0n, Outcome.YES);
+      await expect(market.connect(o).voteOnDispute(0n, Outcome.NO)).to.be.revertedWith("already voted");
+    });
+
+    it("vote outside window is rejected", async () => {
+      const { registry, market } = await deployStack();
+      const [creator, , , p, d, o] = await ethers.getSigners();
+      await createDefaultMarket(market, creator);
+      await registry.connect(o).register({ value: MIN_STAKE });
+      const m0 = await market.markets(0n);
+      await time.increaseTo(Number(m0.tradingDeadline) + 1);
+      await market.connect(p).proposeOutcome(0n, Outcome.YES, { value: PROPOSAL_BOND });
+      // not disputed yet
+      await expect(market.connect(o).voteOnDispute(0n, Outcome.YES)).to.be.revertedWith("wrong state");
+      await market.connect(d).disputeProposal(0n, { value: DISPUTE_BOND });
+      const m1 = await market.markets(0n);
+      await time.increaseTo(Number(m1.voteDeadline) + 1);
+      await expect(market.connect(o).voteOnDispute(0n, Outcome.YES)).to.be.revertedWith("vote closed");
+    });
+
+    it("dispute window closed -> dispute reverts", async () => {
+      const { market } = await deployStack();
+      const [creator, , , p, d] = await ethers.getSigners();
+      await createDefaultMarket(market, creator);
+      const m0 = await market.markets(0n);
+      await time.increaseTo(Number(m0.tradingDeadline) + 1);
+      await market.connect(p).proposeOutcome(0n, Outcome.YES, { value: PROPOSAL_BOND });
+      const m1 = await market.markets(0n);
+      await time.increaseTo(Number(m1.disputeDeadline) + 1);
+      await expect(market.connect(d).disputeProposal(0n, { value: DISPUTE_BOND }))
+        .to.be.revertedWith("dispute closed");
+    });
+  });
+
+  describe("expiry & edge cases", () => {
+    it("no proposal by deadline -> Expired, INVALID, stakers refunded with bond", async () => {
+      const { market } = await deployStack();
+      const [creator, alice, bob] = await ethers.getSigners();
+      const { proposalDeadline } = await createDefaultMarket(market, creator);
       await market.connect(alice).stakeYes(0n, { value: ethers.parseEther("3") });
-      await market.connect(bob).stakeNo(0n, { value: ethers.parseEther("1") });
+      await market.connect(bob).stakeNo(0n,   { value: ethers.parseEther("1") });
 
-      await time.increaseTo(resolutionTime + 1);
-      const s1 = makeSalt("x");
-      const s2 = makeSalt("y");
-      await market.connect(r1).commitResolution(0n, commitmentHash(Outcome.YES, s1), { value: COLLATERAL });
-      await market.connect(r2).commitResolution(0n, commitmentHash(Outcome.NO, s2), { value: COLLATERAL });
-
-      // Only r1 reveals -> below quorum
-      await time.increaseTo(commitDeadline + 1);
-      await market.connect(r1).revealResolution(0n, Outcome.YES, s1);
-
-      await time.increaseTo(revealDeadline + 1);
+      await time.increaseTo(proposalDeadline + 1);
       await expect(market.finalizeMarket(0n))
-        .to.emit(market, "MarketFinalized")
-        .withArgs(0n, Outcome.INVALID);
+        .to.emit(market, "MarketFinalized").withArgs(0n, Outcome.INVALID);
 
       const m = await market.markets(0n);
-      expect(m.winningResolverCount).to.equal(0n);
-      expect(m.slashPool).to.equal(COLLATERAL); // r2 (non-revealer) slashed
+      expect(m.state).to.equal(State.Expired);
 
-      // Alice (YES staker) claims pro-rata share of bond + slash pool
       const total = ethers.parseEther("4");
-      const aliceStake = ethers.parseEther("3");
-      const extra = m.creatorBond + m.slashPool;
-      const expectedAlice = aliceStake + (extra * aliceStake) / total;
+      const expectedAlice = ethers.parseEther("3") + (BOND * ethers.parseEther("3")) / total;
       const before = await ethers.provider.getBalance(alice.address);
       const tx = await market.connect(alice).claimWinnings(0n);
       const r = await tx.wait();
       const after = await ethers.provider.getBalance(alice.address);
       expect(after - before + r!.gasUsed * r!.gasPrice).to.equal(expectedAlice);
-
-      // Bob (NO staker) also gets refund + share
-      const expectedBob = ethers.parseEther("1") + (extra * ethers.parseEther("1")) / total;
-      const beforeBob = await ethers.provider.getBalance(bob.address);
-      const tx2 = await market.connect(bob).claimWinnings(0n);
-      const r2recpt = await tx2.wait();
-      const afterBob = await ethers.provider.getBalance(bob.address);
-      expect(afterBob - beforeBob + r2recpt!.gasUsed * r2recpt!.gasPrice).to.equal(expectedBob);
-
-      // r1 (revealed) gets collateral back
-      const beforeR = await ethers.provider.getBalance(r1.address);
-      const tx3 = await market.connect(r1).claimResolverReward(0n);
-      const r3 = await tx3.wait();
-      const afterR = await ethers.provider.getBalance(r1.address);
-      expect(afterR - beforeR + r3!.gasUsed * r3!.gasPrice).to.equal(COLLATERAL);
     });
 
-    it("non-revealing resolver cannot claim", async () => {
-      const market = await deploy();
-      const [creator, alice, , r1, r2] = await ethers.getSigners();
-      const { resolutionTime, commitDeadline, revealDeadline } =
-        await createDefaultMarket(market, creator, 1n);
+    it("cannot finalize twice", async () => {
+      const { market } = await deployStack();
+      const [creator, , , p] = await ethers.getSigners();
+      await createDefaultMarket(market, creator);
+      const m0 = await market.markets(0n);
+      await time.increaseTo(Number(m0.tradingDeadline) + 1);
+      await market.connect(p).proposeOutcome(0n, Outcome.YES, { value: PROPOSAL_BOND });
+      const m1 = await market.markets(0n);
+      await time.increaseTo(Number(m1.disputeDeadline) + 1);
+      await market.finalizeMarket(0n);
+      await expect(market.finalizeMarket(0n)).to.be.revertedWith("already done");
+    });
 
+    it("cannot claim before finalize", async () => {
+      const { market } = await deployStack();
+      const [creator, alice] = await ethers.getSigners();
+      await createDefaultMarket(market, creator);
       await market.connect(alice).stakeYes(0n, { value: ethers.parseEther("1") });
-      await time.increaseTo(resolutionTime + 1);
-      const s1 = makeSalt("x");
-      const s2 = makeSalt("y");
-      await market.connect(r1).commitResolution(0n, commitmentHash(Outcome.YES, s1), { value: COLLATERAL });
-      await market.connect(r2).commitResolution(0n, commitmentHash(Outcome.YES, s2), { value: COLLATERAL });
+      await expect(market.connect(alice).claimWinnings(0n)).to.be.revertedWith("not finalized");
+    });
 
-      await time.increaseTo(commitDeadline + 1);
-      await market.connect(r1).revealResolution(0n, Outcome.YES, s1);
-      // r2 never reveals
-      await time.increaseTo(revealDeadline + 1);
+    it("disputed but no oracle votes -> proposed outcome stands by default", async () => {
+      const { market } = await deployStack();
+      const [creator, alice, , p, d] = await ethers.getSigners();
+      await createDefaultMarket(market, creator);
+      await market.connect(alice).stakeYes(0n, { value: ethers.parseEther("1") });
+      const m0 = await market.markets(0n);
+      await time.increaseTo(Number(m0.tradingDeadline) + 1);
+      await market.connect(p).proposeOutcome(0n, Outcome.YES, { value: PROPOSAL_BOND });
+      await market.connect(d).disputeProposal(0n, { value: DISPUTE_BOND });
+      const m1 = await market.markets(0n);
+      await time.increaseTo(Number(m1.voteDeadline) + 1);
+      await market.finalizeMarket(0n);
+      const m2 = await market.markets(0n);
+      expect(m2.result).to.equal(Outcome.YES);
+      // Proposer reclaims both bonds (treated as winner since outcome matched proposal)
+      // Actually proposedOutcome == result, so disputer "lost".
+      await expect(market.connect(d).claimDisputerBond(0n)).to.be.revertedWith("disputer was wrong");
+    });
+
+    it("oracle is deactivated after being slashed below MIN_STAKE", async () => {
+      const { registry, market } = await deployStack();
+      const [creator, , , p, d, o1, o2] = await ethers.getSigners();
+      await createDefaultMarket(market, creator);
+      // o1 has more weight than o2; both vote — YES wins, o2 gets slashed.
+      await registry.connect(o1).register({ value: MIN_STAKE * 2n });
+      await registry.connect(o2).register({ value: MIN_STAKE });
+
+      const m0 = await market.markets(0n);
+      await time.increaseTo(Number(m0.tradingDeadline) + 1);
+      await market.connect(p).proposeOutcome(0n, Outcome.YES, { value: PROPOSAL_BOND });
+      await market.connect(d).disputeProposal(0n, { value: DISPUTE_BOND });
+      await market.connect(o1).voteOnDispute(0n, Outcome.YES);
+      await market.connect(o2).voteOnDispute(0n, Outcome.NO);
+
+      const m1 = await market.markets(0n);
+      await time.increaseTo(Number(m1.voteDeadline) + 1);
       await market.finalizeMarket(0n);
 
-      await expect(market.connect(r2).claimResolverReward(0n)).to.be.revertedWith("did not reveal");
-    });
-
-    it("computeCommitment matches off-chain hash", async () => {
-      const market = await deploy();
-      const salt = makeSalt("z");
-      const expected = commitmentHash(Outcome.YES, salt);
-      expect(await market.computeCommitment(Outcome.YES, salt)).to.equal(expected);
-    });
-
-    it("getResolvers returns committed resolver addresses", async () => {
-      const market = await deploy();
-      const [creator, , , r1, r2] = await ethers.getSigners();
-      const { resolutionTime } = await createDefaultMarket(market, creator);
-      await time.increaseTo(resolutionTime + 1);
-      await market.connect(r1).commitResolution(0n, commitmentHash(Outcome.YES, makeSalt("x")), { value: COLLATERAL });
-      await market.connect(r2).commitResolution(0n, commitmentHash(Outcome.NO, makeSalt("y")), { value: COLLATERAL });
-      const list = await market.getResolvers(0n);
-      expect(list).to.deep.equal([r1.address, r2.address]);
-      expect(await market.resolverCount(0n)).to.equal(2n);
-    });
-
-    it("tie between YES and NO falls back to INVALID with quorum met", async () => {
-      const { market } = await setupVotedMarket(2, [Outcome.YES, Outcome.NO]);
-      await market.finalizeMarket(0n);
-      const m = await market.markets(0n);
-      expect(m.result).to.equal(Outcome.INVALID);
-      // Both resolvers slashed because neither matches winning (INVALID).
-      expect(m.winningResolverCount).to.equal(0n);
-      expect(m.slashPool).to.equal(COLLATERAL * 2n);
+      const m2 = await market.markets(0n);
+      expect(m2.result).to.equal(Outcome.YES);
+      expect(await registry.isOracle(o2.address)).to.be.false; // stake fully slashed
+      expect(await registry.stakeOf(o2.address)).to.equal(0n);
     });
   });
 });

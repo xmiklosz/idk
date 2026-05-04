@@ -4,59 +4,44 @@ import { ethers } from "ethers";
 import toast from "react-hot-toast";
 import { WalletState } from "../hooks/useContract";
 
-function toUnix(local: string): number {
-  return Math.floor(new Date(local).getTime() / 1000);
-}
+const toUnix = (local: string) => Math.floor(new Date(local).getTime() / 1000);
 
 export default function CreateMarket({ wallet }: { wallet: WalletState }) {
   const nav = useNavigate();
   const [question, setQuestion] = useState("");
-  const [resolutionLocal, setResolutionLocal] = useState("");
-  const [commitMinutes, setCommitMinutes] = useState(60);
-  const [revealMinutes, setRevealMinutes] = useState(60);
-  const [quorum, setQuorum] = useState(3);
+  const [tradingLocal, setTradingLocal] = useState("");
+  const [proposalMinutes, setProposalMinutes] = useState(120);
   const [bond, setBond] = useState("0.01");
   const [busy, setBusy] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!wallet.writeContract) {
-      toast.error("Connect your wallet first");
-      return;
+    if (!wallet.marketWrite) return toast.error("Connect your wallet first");
+    if (!wallet.isCorrectChain) return toast.error("Wrong network");
+
+    const tradingDeadline = toUnix(tradingLocal);
+    if (!tradingDeadline || tradingDeadline <= Math.floor(Date.now() / 1000)) {
+      return toast.error("Trading deadline must be in the future");
     }
-    if (!wallet.isCorrectChain) {
-      toast.error("Wrong network");
-      return;
-    }
-    const resolutionTime = toUnix(resolutionLocal);
-    if (!resolutionTime || resolutionTime <= Math.floor(Date.now() / 1000)) {
-      toast.error("Resolution time must be in the future");
-      return;
-    }
-    const commitDeadline = resolutionTime + commitMinutes * 60;
-    const revealDeadline = commitDeadline + revealMinutes * 60;
+    const proposalDeadline = tradingDeadline + proposalMinutes * 60;
 
     setBusy(true);
     const t = toast.loading("Submitting transaction…");
     try {
-      const tx = await wallet.writeContract.createMarket(
+      const tx = await wallet.marketWrite.createMarket(
         question,
-        resolutionTime,
-        commitDeadline,
-        revealDeadline,
-        quorum,
+        tradingDeadline,
+        proposalDeadline,
         { value: ethers.parseEther(bond) }
       );
       toast.loading("Waiting for confirmation…", { id: t });
-      const receipt = await tx.wait();
-      // marketId = old marketCount; read after.
-      const newCount: bigint = await wallet.readContract.marketCount();
+      await tx.wait();
+      const newCount: bigint = await wallet.market.marketCount();
       const newId = newCount - 1n;
       toast.success(`Market #${newId} created`, { id: t });
       nav(`/market/${newId}`);
     } catch (err: any) {
-      console.error(err);
-      toast.error(err?.shortMessage || err?.reason || err?.message || "Transaction failed", { id: t });
+      toast.error(err?.shortMessage || err?.reason || err?.message || "Failed", { id: t });
     } finally {
       setBusy(false);
     }
@@ -77,47 +62,28 @@ export default function CreateMarket({ wallet }: { wallet: WalletState }) {
           />
         </div>
         <div>
-          <label className="label">Resolution time (when staking closes)</label>
+          <label className="label">Trading deadline (when staking closes)</label>
           <input
             type="datetime-local"
             className="input"
-            value={resolutionLocal}
-            onChange={(e) => setResolutionLocal(e.target.value)}
+            value={tradingLocal}
+            onChange={(e) => setTradingLocal(e.target.value)}
             required
           />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="label">Commit window (minutes)</label>
+            <label className="label">Proposal window (minutes)</label>
             <input
               type="number"
-              min={1}
+              min={10}
               className="input"
-              value={commitMinutes}
-              onChange={(e) => setCommitMinutes(Number(e.target.value))}
+              value={proposalMinutes}
+              onChange={(e) => setProposalMinutes(Number(e.target.value))}
             />
-          </div>
-          <div>
-            <label className="label">Reveal window (minutes)</label>
-            <input
-              type="number"
-              min={1}
-              className="input"
-              value={revealMinutes}
-              onChange={(e) => setRevealMinutes(Number(e.target.value))}
-            />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="label">Quorum (min resolvers)</label>
-            <input
-              type="number"
-              min={1}
-              className="input"
-              value={quorum}
-              onChange={(e) => setQuorum(Number(e.target.value))}
-            />
+            <p className="text-xs text-slate-500 mt-1">
+              Time after trading closes within which an oracle must propose an outcome.
+            </p>
           </div>
           <div>
             <label className="label">Creator bond (ETH)</label>
@@ -128,7 +94,13 @@ export default function CreateMarket({ wallet }: { wallet: WalletState }) {
               onChange={(e) => setBond(e.target.value)}
               required
             />
+            <p className="text-xs text-slate-500 mt-1">
+              Distributed pro-rata to winning stakers.
+            </p>
           </div>
+        </div>
+        <div className="text-xs text-slate-400 bg-slate-900 border border-slate-700 rounded-md p-3">
+          Resolution flow: <strong>Trading → Proposed</strong> (proposer posts 0.05 ETH bond) <strong>→ optional Disputed</strong> (disputer posts 0.05 ETH) <strong>→ stake-weighted oracle vote → Resolved</strong>. Dispute window 1h, vote window 24h.
         </div>
         <button type="submit" className="btn-primary w-full" disabled={busy}>
           {busy ? "Submitting…" : "Create market"}
