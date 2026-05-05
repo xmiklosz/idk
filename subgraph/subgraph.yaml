@@ -1,0 +1,50 @@
+specVersion: 1.0.0
+description: Indexes the optimistic-oracle PredictionMarket contract.
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: PredictionMarket
+    network: sepolia
+    source:
+      address: "0x0000000000000000000000000000000000000000"
+      abi: PredictionMarket
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/mapping.ts
+      entities:
+        - Market
+        - Stake
+        - Proposal
+        - Dispute
+        - OracleVote
+        - PriceResolution
+      abis:
+        - name: PredictionMarket
+          file: ./abis/PredictionMarket.json
+      eventHandlers:
+        - event: MarketCreated(indexed uint256,indexed address,string,uint256,uint8,string)
+          handler: handleMarketCreated
+        - event: Staked(indexed uint256,indexed address,bool,uint256)
+          handler: handleStaked
+        - event: Proposed(indexed uint256,indexed address,uint8,uint256)
+          handler: handleProposed
+        - event: Disputed(indexed uint256,indexed address,uint256)
+          handler: handleDisputed
+        - event: OracleVoted(indexed uint256,indexed address,uint8,uint256)
+          handler: handleOracleVoted
+        - event: MarketFinalized(indexed uint256,uint8)
+          handler: handleMarketFinalized
+        - event: PriceMarketResolved(indexed uint256,indexed address,int256,int256,uint8)
+          handler: handlePriceResolved
+        - event: Claimed(indexed uint256,indexed address,uint256)
+          handler: handleClaimed
+        - event: ProposerBondClaimed(indexed uint256,indexed address,uint256)
+          handler: handleProposerBondClaimed
+        - event: DisputerBondClaimed(indexed uint256,indexed address,uint256)
+          handler: handleDisputerBondClaimed
+        - event: OracleRewardClaimed(indexed uint256,indexed address,uint256)
+          handler: handleOracleRewardClaimed

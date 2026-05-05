@@ -29,6 +29,7 @@ async function createDefaultMarket(market: any, creator: any) {
   const proposalDeadline = tradingDeadline + ONE_HOUR;
   await (await market.connect(creator).createMarket(
     "Will ETH > $3000 on June 1?",
+    "",
     tradingDeadline,
     proposalDeadline,
     { value: BOND }
@@ -95,8 +96,8 @@ describe("PredictionMarket — Optimistic Oracle", () => {
       const now = await time.latest();
       const td = now + ONE_HOUR;
       const pd = td + ONE_HOUR;
-      await expect(market.connect(creator).createMarket("Q?", td, pd, { value: BOND }))
-        .to.emit(market, "MarketCreated").withArgs(0n, creator.address, "Q?", td);
+      await expect(market.connect(creator).createMarket("Q?", "", td, pd, { value: BOND }))
+        .to.emit(market, "MarketCreated").withArgs(0n, creator.address, "Q?", td, 0, "");
       const m = await market.markets(0n);
       expect(m.state).to.equal(State.Trading);
       expect(m.creatorBond).to.equal(BOND);
@@ -106,13 +107,13 @@ describe("PredictionMarket — Optimistic Oracle", () => {
       const { market } = await deployStack();
       const [c] = await ethers.getSigners();
       const now = await time.latest();
-      await expect(market.connect(c).createMarket("", now + 100, now + 200, { value: BOND }))
+      await expect(market.connect(c).createMarket("", "", now + 100, now + 200, { value: BOND }))
         .to.be.revertedWith("empty question");
-      await expect(market.connect(c).createMarket("Q", now - 1, now + 200, { value: BOND }))
+      await expect(market.connect(c).createMarket("Q", "", now - 1, now + 200, { value: BOND }))
         .to.be.revertedWith("tradingDeadline in past");
-      await expect(market.connect(c).createMarket("Q", now + 100, now + 100, { value: BOND }))
+      await expect(market.connect(c).createMarket("Q", "", now + 100, now + 100, { value: BOND }))
         .to.be.revertedWith("proposalDeadline <= tradingDeadline");
-      await expect(market.connect(c).createMarket("Q", now + 100, now + 200))
+      await expect(market.connect(c).createMarket("Q", "", now + 100, now + 200))
         .to.be.revertedWith("no creator bond");
     });
 
@@ -426,6 +427,160 @@ describe("PredictionMarket — Optimistic Oracle", () => {
       expect(m2.result).to.equal(Outcome.YES);
       expect(await registry.isOracle(o2.address)).to.be.false; // stake fully slashed
       expect(await registry.stakeOf(o2.address)).to.equal(0n);
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Chainlink price-feed markets
+  // ---------------------------------------------------------------------
+  describe("price-feed markets (Chainlink)", () => {
+    async function deployFeed(initialPrice: bigint) {
+      const F = await ethers.getContractFactory("MockAggregatorV3");
+      const feed = await F.deploy(8, "ETH / USD", initialPrice);
+      await feed.waitForDeployment();
+      return feed;
+    }
+
+    async function createPriceMarket(
+      market: any, creator: any, feed: any, threshold: bigint
+    ) {
+      const now = await time.latest();
+      const tradingDeadline  = now + ONE_HOUR;
+      const proposalDeadline = tradingDeadline + ONE_HOUR;
+      await (await market.connect(creator).createPriceMarket(
+        "Will ETH > $3000?",
+        "bafy-fake-cid",
+        tradingDeadline,
+        proposalDeadline,
+        await feed.getAddress(),
+        threshold,
+        { value: BOND }
+      )).wait();
+      return { id: 0n, tradingDeadline, proposalDeadline };
+    }
+
+    it("creates a price market with metadata CID", async () => {
+      const { market } = await deployStack();
+      const [creator] = await ethers.getSigners();
+      const feed = await deployFeed(3500n * 10n ** 8n);
+      const now = await time.latest();
+      await expect(market.connect(creator).createPriceMarket(
+        "Will ETH > $3000?", "bafy-fake-cid",
+        now + ONE_HOUR, now + 2 * ONE_HOUR,
+        await feed.getAddress(), 3000n * 10n ** 8n,
+        { value: BOND }
+      )).to.emit(market, "MarketCreated")
+        .withArgs(0n, creator.address, "Will ETH > $3000?", now + ONE_HOUR, 1, "bafy-fake-cid");
+
+      const m = await market.markets(0n);
+      expect(m.marketType).to.equal(1);
+      expect(m.metadataCID).to.equal("bafy-fake-cid");
+      expect(m.priceFeed).to.equal(await feed.getAddress());
+      expect(m.priceThreshold).to.equal(3000n * 10n ** 8n);
+    });
+
+    it("rejects price market with zero feed", async () => {
+      const { market } = await deployStack();
+      const [creator] = await ethers.getSigners();
+      const now = await time.latest();
+      await expect(market.connect(creator).createPriceMarket(
+        "Q", "", now + ONE_HOUR, now + 2 * ONE_HOUR,
+        ethers.ZeroAddress, 0,
+        { value: BOND }
+      )).to.be.revertedWith("feed zero");
+    });
+
+    it("auto-resolves YES when price > threshold", async () => {
+      const { market } = await deployStack();
+      const [creator, alice, bob] = await ethers.getSigners();
+      const feed = await deployFeed(3500n * 10n ** 8n);
+      const { tradingDeadline } = await createPriceMarket(market, creator, feed, 3000n * 10n ** 8n);
+
+      await market.connect(alice).stakeYes(0n, { value: ethers.parseEther("2") });
+      await market.connect(bob).stakeNo(0n,   { value: ethers.parseEther("1") });
+
+      await time.increaseTo(tradingDeadline + 1);
+      // Refresh feed timestamp so it's not stale.
+      await feed.setAnswer(3500n * 10n ** 8n);
+
+      await expect(market.autoResolve(0n))
+        .to.emit(market, "PriceMarketResolved")
+        .withArgs(0n, await feed.getAddress(), 3500n * 10n ** 8n, 3000n * 10n ** 8n, 1)
+        .and.to.emit(market, "MarketFinalized").withArgs(0n, 1);
+
+      const m = await market.markets(0n);
+      expect(m.state).to.equal(State.Resolved);
+      expect(m.result).to.equal(Outcome.YES);
+
+      // Alice (YES) claims her stake + entire NO pool + creator bond
+      const expected = ethers.parseEther("2") +
+        (ethers.parseEther("1") + BOND) * ethers.parseEther("2") / ethers.parseEther("2");
+      const before = await ethers.provider.getBalance(alice.address);
+      const tx = await market.connect(alice).claimWinnings(0n);
+      const r = await tx.wait();
+      const after = await ethers.provider.getBalance(alice.address);
+      expect(after - before + r!.gasUsed * r!.gasPrice).to.equal(expected);
+    });
+
+    it("auto-resolves NO when price <= threshold", async () => {
+      const { market } = await deployStack();
+      const [creator] = await ethers.getSigners();
+      const feed = await deployFeed(2500n * 10n ** 8n);
+      const { tradingDeadline } = await createPriceMarket(market, creator, feed, 3000n * 10n ** 8n);
+      await time.increaseTo(tradingDeadline + 1);
+      await feed.setAnswer(2500n * 10n ** 8n);
+      await market.autoResolve(0n);
+      const m = await market.markets(0n);
+      expect(m.result).to.equal(Outcome.NO);
+    });
+
+    it("rejects autoResolve before tradingDeadline", async () => {
+      const { market } = await deployStack();
+      const [creator] = await ethers.getSigners();
+      const feed = await deployFeed(3500n * 10n ** 8n);
+      await createPriceMarket(market, creator, feed, 3000n * 10n ** 8n);
+      await expect(market.autoResolve(0n)).to.be.revertedWith("trading still open");
+    });
+
+    it("rejects autoResolve on a stale price feed", async () => {
+      const { market } = await deployStack();
+      const [creator] = await ethers.getSigners();
+      const feed = await deployFeed(3500n * 10n ** 8n);
+      const { tradingDeadline } = await createPriceMarket(market, creator, feed, 3000n * 10n ** 8n);
+      // Force the feed timestamp to be very old.
+      await feed.setUpdatedAt(1n);
+      await time.increaseTo(tradingDeadline + 1);
+      await expect(market.autoResolve(0n)).to.be.revertedWith("stale price");
+    });
+
+    it("rejects propose/dispute on price markets", async () => {
+      const { market } = await deployStack();
+      const [creator, , , p] = await ethers.getSigners();
+      const feed = await deployFeed(3500n * 10n ** 8n);
+      const { tradingDeadline } = await createPriceMarket(market, creator, feed, 3000n * 10n ** 8n);
+      await time.increaseTo(tradingDeadline + 1);
+      await expect(
+        market.connect(p).proposeOutcome(0n, Outcome.YES, { value: PROPOSAL_BOND })
+      ).to.be.revertedWith("use autoResolve");
+    });
+
+    it("rejects autoResolve on manual markets", async () => {
+      const { market } = await deployStack();
+      const [creator] = await ethers.getSigners();
+      const { tradingDeadline } = await createDefaultMarket(market, creator);
+      await time.increaseTo(tradingDeadline + 1);
+      await expect(market.autoResolve(0n)).to.be.revertedWith("not price market");
+    });
+
+    it("can't auto-resolve twice", async () => {
+      const { market } = await deployStack();
+      const [creator] = await ethers.getSigners();
+      const feed = await deployFeed(3500n * 10n ** 8n);
+      const { tradingDeadline } = await createPriceMarket(market, creator, feed, 3000n * 10n ** 8n);
+      await time.increaseTo(tradingDeadline + 1);
+      await feed.setAnswer(3500n * 10n ** 8n);
+      await market.autoResolve(0n);
+      await expect(market.autoResolve(0n)).to.be.revertedWith("wrong state");
     });
   });
 });

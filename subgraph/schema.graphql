@@ -1,0 +1,84 @@
+type Market @entity(immutable: false) {
+  id: ID!                       # marketId as decimal string
+  creator: Bytes!
+  question: String!
+  metadataCID: String!
+  marketType: Int!              # 0 = Manual, 1 = PriceFeed
+  tradingDeadline: BigInt!
+  proposalDeadline: BigInt!
+  state: Int!                   # mirrors enum State
+  result: Int!                  # mirrors enum Outcome
+  proposedOutcome: Int!
+  proposer: Bytes
+  disputer: Bytes
+  totalYesStake: BigInt!
+  totalNoStake: BigInt!
+  creatorBond: BigInt!
+  slashPool: BigInt!
+  winningVoteWeight: BigInt!
+  createdAt: BigInt!
+  resolvedAt: BigInt
+  stakes: [Stake!]! @derivedFrom(field: "market")
+  votes:  [OracleVote!]! @derivedFrom(field: "market")
+}
+
+type Stake @entity(immutable: true) {
+  id: ID!                       # txHash + logIndex
+  market: Market!
+  user: Bytes!
+  isYes: Boolean!
+  amount: BigInt!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  txHash: Bytes!
+}
+
+type Proposal @entity(immutable: true) {
+  id: ID!
+  market: Market!
+  proposer: Bytes!
+  outcome: Int!
+  disputeDeadline: BigInt!
+  blockTimestamp: BigInt!
+  txHash: Bytes!
+}
+
+type Dispute @entity(immutable: true) {
+  id: ID!
+  market: Market!
+  disputer: Bytes!
+  voteDeadline: BigInt!
+  blockTimestamp: BigInt!
+  txHash: Bytes!
+}
+
+type OracleVote @entity(immutable: true) {
+  id: ID!
+  market: Market!
+  oracle: Bytes!
+  outcome: Int!
+  weight: BigInt!
+  blockTimestamp: BigInt!
+  txHash: Bytes!
+}
+
+type PriceResolution @entity(immutable: true) {
+  id: ID!
+  market: Market!
+  feed: Bytes!
+  price: BigInt!
+  threshold: BigInt!
+  outcome: Int!
+  blockTimestamp: BigInt!
+  txHash: Bytes!
+}
+
+type Claim @entity(immutable: true) {
+  id: ID!
+  market: Market!
+  user: Bytes!
+  kind: String!                 # winnings | proposerBond | disputerBond | oracleReward
+  amount: BigInt!
+  blockTimestamp: BigInt!
+  txHash: Bytes!
+}

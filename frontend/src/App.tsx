@@ -1,5 +1,6 @@
 import { Link, Route, Routes } from "react-router-dom";
 import { useWallet, MARKET_ADDRESS, REGISTRY_ADDRESS, CHAIN_ID } from "./hooks/useContract";
+import { useNotifications } from "./hooks/useNotifications";
 import WalletConnect from "./components/WalletConnect";
 import MarketList from "./components/MarketList";
 import MarketDetail from "./components/MarketDetail";
@@ -8,6 +9,7 @@ import OraclePage from "./components/OraclePage";
 
 export default function App() {
   const wallet = useWallet();
+  useNotifications(wallet);
 
   return (
     <div className="min-h-screen flex flex-col">

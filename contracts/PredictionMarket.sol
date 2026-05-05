@@ -3,36 +3,38 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./OracleRegistry.sol";
+import "./interfaces/AggregatorV3Interface.sol";
 
-/// @title  Optimistic Oracle Prediction Market (Polymarket / UMA-style)
-/// @notice Binary YES/NO markets resolved by an optimistic oracle:
-///           1. After the trading window closes, anyone may PROPOSE an outcome
-///              by posting a fixed proposal bond.
-///           2. During the dispute window, anyone may DISPUTE the proposal by
-///              posting a dispute bond. If undisputed, the proposal stands.
-///           3. If disputed, the dispute is resolved by a stake-weighted vote
-///              of registered oracles. The losing bond (proposer or disputer)
-///              is paid to the winning side. Oracles voting against the final
-///              outcome have their registry stake slashed; the slashPool is
-///              split between winning oracles and winning stakers.
+/// @title  Prediction market with two resolution paths
+/// @notice Hybrid Polymarket / UMA-style market:
+///           * MANUAL markets resolve via an optimistic oracle: anyone may
+///             propose an outcome with a bond, anyone may dispute with a
+///             counter-bond, and disputes escalate to a stake-weighted vote
+///             of registered oracles.
+///           * PRICE markets resolve trustlessly by reading a Chainlink
+///             AggregatorV3 feed at trading-close: YES if the feed price is
+///             strictly greater than the threshold, otherwise NO.
 contract PredictionMarket is ReentrancyGuard {
-    enum Outcome { UNRESOLVED, YES, NO, INVALID }
-    enum State   { Trading, Proposed, Disputed, Resolved, Expired }
+    enum Outcome    { UNRESOLVED, YES, NO, INVALID }
+    enum State      { Trading, Proposed, Disputed, Resolved, Expired }
+    enum MarketType { Manual, PriceFeed }
 
     struct Market {
         address creator;
         string  question;
+        string  metadataCID;       // optional IPFS CID for extended metadata
         // Lifecycle deadlines
-        uint256 tradingDeadline;   // staking closes; proposals open after this
-        uint256 proposalDeadline;  // someone must propose by this or market expires
-        uint256 disputeDeadline;   // dispute window after a proposal (set when proposed)
-        uint256 voteDeadline;      // oracle vote window after a dispute (set when disputed)
+        uint256 tradingDeadline;
+        uint256 proposalDeadline;
+        uint256 disputeDeadline;
+        uint256 voteDeadline;
         // Stakes
         uint256 totalYesStake;
         uint256 totalNoStake;
         uint256 creatorBond;
         // Resolution state
         State    state;
+        MarketType marketType;
         Outcome  proposedOutcome;
         Outcome  result;
         address  proposer;
@@ -42,17 +44,21 @@ contract PredictionMarket is ReentrancyGuard {
         uint256 noVoteWeight;
         uint256 invalidVoteWeight;
         // Slash accounting
-        uint256 slashPool;          // total ETH slashed from losing oracle voters
-        uint256 winningVoteWeight;  // total weight on the winning outcome
+        uint256 slashPool;
+        uint256 winningVoteWeight;
         // Bond claim tracking
         bool proposerBondClaimed;
         bool disputerBondClaimed;
+        // Chainlink price-feed config (PriceFeed markets only)
+        address priceFeed;
+        int256  priceThreshold;
     }
 
-    uint256 public constant PROPOSAL_BOND  = 0.05 ether;
-    uint256 public constant DISPUTE_BOND   = 0.05 ether;
-    uint256 public constant DISPUTE_WINDOW = 1 hours;
-    uint256 public constant VOTE_WINDOW    = 1 days;
+    uint256 public constant PROPOSAL_BOND   = 0.05 ether;
+    uint256 public constant DISPUTE_BOND    = 0.05 ether;
+    uint256 public constant DISPUTE_WINDOW  = 1 hours;
+    uint256 public constant VOTE_WINDOW     = 1 days;
+    uint256 public constant PRICE_STALENESS = 1 hours;
 
     OracleRegistry public immutable registry;
 
@@ -62,18 +68,18 @@ contract PredictionMarket is ReentrancyGuard {
     mapping(uint256 => mapping(address => uint256)) public noStakes;
     mapping(uint256 => mapping(address => bool))    public claimed;
 
-    // Oracle vote state
     mapping(uint256 => mapping(address => Outcome)) public oracleVote;
-    mapping(uint256 => mapping(address => uint256)) public oracleVoteWeight; // snapshot
+    mapping(uint256 => mapping(address => uint256)) public oracleVoteWeight;
     mapping(uint256 => mapping(address => bool))    public oracleClaimed;
     mapping(uint256 => address[]) private _voters;
 
-    event MarketCreated(uint256 indexed marketId, address indexed creator, string question, uint256 tradingDeadline);
+    event MarketCreated(uint256 indexed marketId, address indexed creator, string question, uint256 tradingDeadline, MarketType marketType, string metadataCID);
     event Staked(uint256 indexed marketId, address indexed user, bool isYes, uint256 amount);
     event Proposed(uint256 indexed marketId, address indexed proposer, Outcome outcome, uint256 disputeDeadline);
     event Disputed(uint256 indexed marketId, address indexed disputer, uint256 voteDeadline);
     event OracleVoted(uint256 indexed marketId, address indexed oracle, Outcome outcome, uint256 weight);
     event MarketFinalized(uint256 indexed marketId, Outcome result);
+    event PriceMarketResolved(uint256 indexed marketId, address indexed feed, int256 price, int256 threshold, Outcome result);
     event Claimed(uint256 indexed marketId, address indexed user, uint256 amount);
     event ProposerBondClaimed(uint256 indexed marketId, address indexed proposer, uint256 amount);
     event DisputerBondClaimed(uint256 indexed marketId, address indexed disputer, uint256 amount);
@@ -88,11 +94,41 @@ contract PredictionMarket is ReentrancyGuard {
     // Market creation & staking
     // ---------------------------------------------------------------------
 
+    /// @notice Create a manual market (resolved by the optimistic oracle).
     function createMarket(
         string calldata question,
+        string calldata metadataCID,
         uint256 tradingDeadline,
         uint256 proposalDeadline
     ) external payable returns (uint256 id) {
+        return _createMarket(question, metadataCID, tradingDeadline, proposalDeadline, MarketType.Manual, address(0), 0);
+    }
+
+    /// @notice Create a price-feed market that auto-resolves from Chainlink.
+    /// @dev   Result is YES when feed price > threshold at trading-close.
+    function createPriceMarket(
+        string calldata question,
+        string calldata metadataCID,
+        uint256 tradingDeadline,
+        uint256 proposalDeadline,
+        address priceFeed,
+        int256  priceThreshold
+    ) external payable returns (uint256 id) {
+        require(priceFeed != address(0), "feed zero");
+        // Sanity: feed must respond and be priced.
+        AggregatorV3Interface(priceFeed).decimals();
+        return _createMarket(question, metadataCID, tradingDeadline, proposalDeadline, MarketType.PriceFeed, priceFeed, priceThreshold);
+    }
+
+    function _createMarket(
+        string calldata question,
+        string calldata metadataCID,
+        uint256 tradingDeadline,
+        uint256 proposalDeadline,
+        MarketType marketType,
+        address priceFeed,
+        int256  priceThreshold
+    ) internal returns (uint256 id) {
         require(bytes(question).length > 0, "empty question");
         require(tradingDeadline > block.timestamp, "tradingDeadline in past");
         require(proposalDeadline > tradingDeadline, "proposalDeadline <= tradingDeadline");
@@ -102,14 +138,18 @@ contract PredictionMarket is ReentrancyGuard {
         Market storage m = markets[id];
         m.creator           = msg.sender;
         m.question          = question;
+        m.metadataCID       = metadataCID;
         m.tradingDeadline   = tradingDeadline;
         m.proposalDeadline  = proposalDeadline;
         m.creatorBond       = msg.value;
         m.state             = State.Trading;
+        m.marketType        = marketType;
         m.result            = Outcome.UNRESOLVED;
         m.proposedOutcome   = Outcome.UNRESOLVED;
+        m.priceFeed         = priceFeed;
+        m.priceThreshold    = priceThreshold;
 
-        emit MarketCreated(id, msg.sender, question, tradingDeadline);
+        emit MarketCreated(id, msg.sender, question, tradingDeadline, marketType, metadataCID);
     }
 
     function stakeYes(uint256 marketId) external payable { _stake(marketId, true); }
@@ -132,12 +172,39 @@ contract PredictionMarket is ReentrancyGuard {
     }
 
     // ---------------------------------------------------------------------
-    // Optimistic oracle: propose / dispute / vote
+    // Chainlink auto-resolution (PriceFeed markets only)
+    // ---------------------------------------------------------------------
+
+    /// @notice Resolve a price-feed market trustlessly using its Chainlink feed.
+    ///         Callable by anyone after `tradingDeadline`.
+    function autoResolve(uint256 marketId) external nonReentrant {
+        Market storage m = markets[marketId];
+        require(m.creator != address(0), "no market");
+        require(m.marketType == MarketType.PriceFeed, "not price market");
+        require(m.state == State.Trading, "wrong state");
+        require(block.timestamp >= m.tradingDeadline, "trading still open");
+
+        (, int256 price, , uint256 updatedAt, ) = AggregatorV3Interface(m.priceFeed).latestRoundData();
+        require(updatedAt > 0, "no price");
+        require(block.timestamp - updatedAt <= PRICE_STALENESS, "stale price");
+
+        Outcome r = price > m.priceThreshold ? Outcome.YES : Outcome.NO;
+        m.proposedOutcome = r;
+        m.result          = r;
+        m.state           = State.Resolved;
+
+        emit PriceMarketResolved(marketId, m.priceFeed, price, m.priceThreshold, r);
+        emit MarketFinalized(marketId, r);
+    }
+
+    // ---------------------------------------------------------------------
+    // Optimistic oracle: propose / dispute / vote (Manual markets only)
     // ---------------------------------------------------------------------
 
     function proposeOutcome(uint256 marketId, Outcome outcome) external payable {
         Market storage m = markets[marketId];
         require(m.creator != address(0), "no market");
+        require(m.marketType == MarketType.Manual, "use autoResolve");
         require(m.state == State.Trading, "wrong state");
         require(block.timestamp >= m.tradingDeadline, "propose not open");
         require(block.timestamp <  m.proposalDeadline, "propose closed");
@@ -188,7 +255,7 @@ contract PredictionMarket is ReentrancyGuard {
     }
 
     // ---------------------------------------------------------------------
-    // Finalization (callable by anyone once the relevant window is past)
+    // Finalization (Manual markets)
     // ---------------------------------------------------------------------
 
     function finalizeMarket(uint256 marketId) external nonReentrant {
@@ -197,8 +264,6 @@ contract PredictionMarket is ReentrancyGuard {
         require(m.state != State.Resolved && m.state != State.Expired, "already done");
 
         if (m.state == State.Trading) {
-            // No proposal arrived in time → market expires as INVALID,
-            // creator bond + any value sent on tx returned to stakers pro rata.
             require(block.timestamp >= m.proposalDeadline, "proposal still open");
             m.result = Outcome.INVALID;
             m.state  = State.Expired;
@@ -207,7 +272,6 @@ contract PredictionMarket is ReentrancyGuard {
         }
 
         if (m.state == State.Proposed) {
-            // Undisputed → proposed outcome stands.
             require(block.timestamp >= m.disputeDeadline, "dispute still open");
             m.result = m.proposedOutcome;
             m.state  = State.Resolved;
@@ -219,10 +283,7 @@ contract PredictionMarket is ReentrancyGuard {
         require(block.timestamp >= m.voteDeadline, "vote still open");
 
         Outcome winner = _voteWinner(m);
-        if (winner == Outcome.UNRESOLVED) {
-            // Nobody voted → proposed outcome stands by default.
-            winner = m.proposedOutcome;
-        }
+        if (winner == Outcome.UNRESOLVED) winner = m.proposedOutcome;
         m.result = winner;
 
         if (m.yesVoteWeight + m.noVoteWeight + m.invalidVoteWeight > 0) {
@@ -241,12 +302,9 @@ contract PredictionMarket is ReentrancyGuard {
         if (y > n && y > i) return Outcome.YES;
         if (n > y && n > i) return Outcome.NO;
         if (i > y && i > n) return Outcome.INVALID;
-        return Outcome.INVALID; // ties resolve to INVALID
+        return Outcome.INVALID;
     }
 
-    /// @dev Slashes 100% of each losing voter's snapshot vote-weight from the
-    ///      registry. Slashed ETH is sent to this contract and becomes the
-    ///      slashPool, split later between winning voters and winning stakers.
     function _slashLosingVoters(uint256 marketId, Outcome winner) internal {
         Market storage m = markets[marketId];
         address[] storage voters = _voters[marketId];
@@ -272,11 +330,10 @@ contract PredictionMarket is ReentrancyGuard {
         return o == Outcome.YES || o == Outcome.NO || o == Outcome.INVALID;
     }
 
-    /// @notice So the contract can receive slashed ETH from the registry.
     receive() external payable {}
 
     // ---------------------------------------------------------------------
-    // Claims
+    // Claims (shared by both market types)
     // ---------------------------------------------------------------------
 
     function claimWinnings(uint256 marketId) external nonReentrant {
@@ -287,7 +344,6 @@ contract PredictionMarket is ReentrancyGuard {
         uint256 payout;
 
         if (m.state == State.Expired) {
-            // Proposal never arrived: full refund + pro-rata creator bond.
             uint256 totalStake = m.totalYesStake + m.totalNoStake;
             require(totalStake > 0, "no stake");
             uint256 myStake = yesStakes[marketId][msg.sender] + noStakes[marketId][msg.sender];
@@ -311,7 +367,6 @@ contract PredictionMarket is ReentrancyGuard {
             payout = myStake + (loserPool * myStake) / m.totalYesStake;
 
         } else {
-            // Outcome.NO
             uint256 myStake = noStakes[marketId][msg.sender];
             require(myStake > 0, "nothing to claim");
             uint256 stakerShare = m.winningVoteWeight == 0 ? m.slashPool : (m.slashPool / 2);
@@ -325,23 +380,17 @@ contract PredictionMarket is ReentrancyGuard {
         emit Claimed(marketId, msg.sender, payout);
     }
 
-    /// @notice Proposer reclaims bond. Earns disputer bond too if their
-    ///         proposal matched the final result.
     function claimProposerBond(uint256 marketId) external nonReentrant {
         Market storage m = markets[marketId];
-        require(m.state == State.Resolved || m.state == State.Expired, "not finalized");
+        require(m.state == State.Resolved, "not finalized");
         require(msg.sender == m.proposer, "not proposer");
         require(!m.proposerBondClaimed, "already claimed");
 
         uint256 payout;
-        if (m.state == State.Expired) {
-            // Cannot happen: Expired requires no proposal, so m.proposer == 0.
-            revert("no proposal");
-        }
         if (m.disputer == address(0)) {
-            payout = PROPOSAL_BOND; // undisputed → bond returned
+            payout = PROPOSAL_BOND;
         } else if (m.proposedOutcome == m.result) {
-            payout = PROPOSAL_BOND + DISPUTE_BOND; // proposer won the dispute
+            payout = PROPOSAL_BOND + DISPUTE_BOND;
         } else {
             revert("proposer was wrong");
         }
@@ -352,7 +401,6 @@ contract PredictionMarket is ReentrancyGuard {
         emit ProposerBondClaimed(marketId, msg.sender, payout);
     }
 
-    /// @notice Disputer claims both bonds if the dispute changed the outcome.
     function claimDisputerBond(uint256 marketId) external nonReentrant {
         Market storage m = markets[marketId];
         require(m.state == State.Resolved, "not finalized");
@@ -368,9 +416,6 @@ contract PredictionMarket is ReentrancyGuard {
         emit DisputerBondClaimed(marketId, msg.sender, payout);
     }
 
-    /// @notice Oracle voters who voted with the final outcome reclaim their
-    ///         snapshot vote-weight (registry stake unchanged) plus a share of
-    ///         half of the slash pool, weighted by their vote weight.
     function claimOracleReward(uint256 marketId) external nonReentrant {
         Market storage m = markets[marketId];
         require(m.state == State.Resolved, "not finalized");
@@ -395,11 +440,6 @@ contract PredictionMarket is ReentrancyGuard {
     // Views
     // ---------------------------------------------------------------------
 
-    function getVoters(uint256 marketId) external view returns (address[] memory) {
-        return _voters[marketId];
-    }
-
-    function voterCount(uint256 marketId) external view returns (uint256) {
-        return _voters[marketId].length;
-    }
+    function getVoters(uint256 marketId) external view returns (address[] memory) { return _voters[marketId]; }
+    function voterCount(uint256 marketId) external view returns (uint256) { return _voters[marketId].length; }
 }

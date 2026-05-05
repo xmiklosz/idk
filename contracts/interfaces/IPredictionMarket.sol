@@ -2,14 +2,27 @@
 pragma solidity ^0.8.24;
 
 interface IPredictionMarket {
-    enum Outcome { UNRESOLVED, YES, NO, INVALID }
-    enum State   { Trading, Proposed, Disputed, Resolved, Expired }
+    enum Outcome    { UNRESOLVED, YES, NO, INVALID }
+    enum State      { Trading, Proposed, Disputed, Resolved, Expired }
+    enum MarketType { Manual, PriceFeed }
 
     function createMarket(
         string calldata question,
+        string calldata metadataCID,
         uint256 tradingDeadline,
         uint256 proposalDeadline
     ) external payable returns (uint256);
+
+    function createPriceMarket(
+        string calldata question,
+        string calldata metadataCID,
+        uint256 tradingDeadline,
+        uint256 proposalDeadline,
+        address priceFeed,
+        int256 priceThreshold
+    ) external payable returns (uint256);
+
+    function autoResolve(uint256 marketId) external;
 
     function stakeYes(uint256 marketId) external payable;
     function stakeNo(uint256 marketId) external payable;

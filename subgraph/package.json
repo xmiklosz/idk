@@ -1,0 +1,19 @@
+{
+  "name": "dmblock-prediction-market-subgraph",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "codegen": "graph codegen",
+    "build": "graph build",
+    "deploy:studio": "graph deploy --studio prediction-market",
+    "deploy:hosted": "graph deploy --product hosted-service <github-username>/prediction-market",
+    "create:local": "graph create --node http://localhost:8020/ prediction-market",
+    "deploy:local": "graph deploy --node http://localhost:8020/ --ipfs http://localhost:5001 prediction-market",
+    "abi": "cp ../artifacts/contracts/PredictionMarket.sol/PredictionMarket.json ./abis/PredictionMarket.json",
+    "prepare": "mkdir -p abis && npm run abi"
+  },
+  "devDependencies": {
+    "@graphprotocol/graph-cli": "0.71.1",
+    "@graphprotocol/graph-ts": "0.32.0"
+  }
+}

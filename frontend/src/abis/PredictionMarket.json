@@ -118,6 +118,18 @@
           "internalType": "uint256",
           "name": "tradingDeadline",
           "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "enum PredictionMarket.MarketType",
+          "name": "marketType",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "metadataCID",
+          "type": "string"
         }
       ],
       "name": "MarketCreated",
@@ -196,6 +208,43 @@
         }
       ],
       "name": "OracleVoted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "feed",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "int256",
+          "name": "price",
+          "type": "int256"
+        },
+        {
+          "indexed": false,
+          "internalType": "int256",
+          "name": "threshold",
+          "type": "int256"
+        },
+        {
+          "indexed": false,
+          "internalType": "enum PredictionMarket.Outcome",
+          "name": "result",
+          "type": "uint8"
+        }
+      ],
+      "name": "PriceMarketResolved",
       "type": "event"
     },
     {
@@ -313,6 +362,19 @@
     },
     {
       "inputs": [],
+      "name": "PRICE_STALENESS",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "PROPOSAL_BOND",
       "outputs": [
         {
@@ -335,6 +397,19 @@
         }
       ],
       "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "marketId",
+          "type": "uint256"
+        }
+      ],
+      "name": "autoResolve",
+      "outputs": [],
+      "stateMutability": "nonpayable",
       "type": "function"
     },
     {
@@ -421,6 +496,11 @@
           "type": "string"
         },
         {
+          "internalType": "string",
+          "name": "metadataCID",
+          "type": "string"
+        },
+        {
           "internalType": "uint256",
           "name": "tradingDeadline",
           "type": "uint256"
@@ -432,6 +512,50 @@
         }
       ],
       "name": "createMarket",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "id",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "question",
+          "type": "string"
+        },
+        {
+          "internalType": "string",
+          "name": "metadataCID",
+          "type": "string"
+        },
+        {
+          "internalType": "uint256",
+          "name": "tradingDeadline",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "proposalDeadline",
+          "type": "uint256"
+        },
+        {
+          "internalType": "address",
+          "name": "priceFeed",
+          "type": "address"
+        },
+        {
+          "internalType": "int256",
+          "name": "priceThreshold",
+          "type": "int256"
+        }
+      ],
+      "name": "createPriceMarket",
       "outputs": [
         {
           "internalType": "uint256",
@@ -521,6 +645,11 @@
           "type": "string"
         },
         {
+          "internalType": "string",
+          "name": "metadataCID",
+          "type": "string"
+        },
+        {
           "internalType": "uint256",
           "name": "tradingDeadline",
           "type": "uint256"
@@ -558,6 +687,11 @@
         {
           "internalType": "enum PredictionMarket.State",
           "name": "state",
+          "type": "uint8"
+        },
+        {
+          "internalType": "enum PredictionMarket.MarketType",
+          "name": "marketType",
           "type": "uint8"
         },
         {
@@ -614,6 +748,16 @@
           "internalType": "bool",
           "name": "disputerBondClaimed",
           "type": "bool"
+        },
+        {
+          "internalType": "address",
+          "name": "priceFeed",
+          "type": "address"
+        },
+        {
+          "internalType": "int256",
+          "name": "priceThreshold",
+          "type": "int256"
         }
       ],
       "stateMutability": "view",

@@ -1,16 +1,41 @@
-# Optimistic-Oracle Prediction Market — DMBLOCK Assignment 2
+# Hybrid Prediction Market — DMBLOCK Assignment 2
 
-A decentralised binary prediction market resolved by a **Polymarket / UMA-style
-optimistic oracle**: anyone can permissionlessly *propose* an outcome backed by
-a bond, anyone can *dispute* with a counter-bond, and contested questions
-escalate to a **stake-weighted vote of a registered oracle network**. Wrong
-proposers, disputers, and oracles lose their bond/stake to the side that turned
-out to be right.
+A binary prediction market with **two complementary resolution paths**:
+
+1. **Chainlink auto-resolution** — for objectively-knowable price questions
+   ("Will ETH > $3000 at trading-close?"). The contract reads a Chainlink
+   AggregatorV3 feed and finalizes itself: zero trust, zero manual oracle
+   intervention.
+2. **Optimistic oracle (Polymarket / UMA style)** — for subjective questions.
+   Anyone may propose an outcome backed by a bond, anyone may dispute, and
+   contested questions escalate to a **stake-weighted vote of a registered
+   oracle network**.
+
+Plus four web3 integrations layered on top:
+
+- **Chainlink Data Feeds** — trustless price-based resolution.
+- **IPFS** — extended market metadata (description, image, sources) stored
+  off-chain to keep gas costs low.
+- **The Graph** — subgraph indexes every event so the frontend loads market
+  history in one query rather than scanning blockchain logs.
+- **Event-driven notifications** — in-app toasts triggered by the contract's
+  events (proposal, dispute, finalize) when something happens to the
+  connected user, with a documented hook into Push Protocol for
+  cross-device push.
 
 > Course: Digital Currencies and Blockchain (DMBLOCK)
 > Stack: Solidity 0.8.24 (viaIR) · Hardhat · ethers v6 · React + Vite + Tailwind
 
 ---
+
+## 0. Web3 integrations at a glance
+
+| Integration | Where | What it does |
+|-------------|-------|--------------|
+| **Chainlink Data Feeds** | `PredictionMarket.autoResolve` | Reads `latestRoundData` from any AggregatorV3 feed and resolves the market YES if `price > threshold`, else NO. Built-in 1h staleness guard; falls back to manual finalize if the feed is broken. |
+| **IPFS** | `Market.metadataCID`, `frontend/utils/ipfs.ts` | Stores extended market metadata off-chain. The frontend fetches the JSON via a public gateway and renders description / image / sources. |
+| **The Graph** | `subgraph/` | Manifest + schema + AssemblyScript mappings indexing every contract event. Deploy it to The Graph Studio and point `VITE_SUBGRAPH_URL` at it. |
+| **Notifications** | `frontend/hooks/useNotifications.ts` | Subscribes to `Proposed`, `Disputed`, `MarketFinalized` events and shows an in-app toast when the connected user is involved. README documents how to forward those events to Push Protocol for true mobile push. |
 
 ## 1. Resolution model
 
@@ -50,13 +75,58 @@ dispute, the question escalates to a token-weighted vote.
 
 ---
 
+## 1a. Chainlink auto-resolution path
+
+For price questions, create the market with `createPriceMarket(...)` instead
+of `createMarket(...)`. After `tradingDeadline`, anyone calls
+`autoResolve(marketId)`:
+
+```solidity
+(, int256 price, , uint256 updatedAt, ) =
+    AggregatorV3Interface(m.priceFeed).latestRoundData();
+require(block.timestamp - updatedAt <= 1 hours, "stale price");
+Outcome r = price > m.priceThreshold ? Outcome.YES : Outcome.NO;
+```
+
+If the feed is stale or reverts, `autoResolve` reverts and stakers can call
+`finalizeMarket` after `proposalDeadline` to expire the market and recover
+their stakes plus the creator bond. Frontend exposes preset feeds for ETH/USD,
+BTC/USD, LINK/USD, USDC/USD on Sepolia (see `frontend/src/utils/priceFeeds.ts`).
+
+## 1b. IPFS metadata
+
+`Market.metadataCID` is an optional CID that points to a JSON document of the
+form:
+
+```json
+{
+  "description": "Long-form market description.",
+  "imageCID":    "bafy...",
+  "sources":     ["https://example.com/source1"],
+  "tags":        ["crypto", "prices"]
+}
+```
+
+Pin it via Pinata, web3.storage, or IPFS Desktop and paste the CID in the
+"Metadata CID" field on the Create Market form. The detail page resolves it
+through `https://ipfs.io/ipfs/<cid>` (gateway is overridable via
+`VITE_IPFS_GATEWAY`) and renders the description, image, and source links.
+
 ## 2. Architecture
 
 ```
 contracts/
   OracleRegistry.sol           staked oracle network; slashing entry point
-  PredictionMarket.sol         optimistic-oracle market lifecycle
+  PredictionMarket.sol         hybrid market: optimistic oracle + Chainlink
+  interfaces/AggregatorV3Interface.sol
   interfaces/IPredictionMarket.sol
+  test/MockAggregatorV3.sol    test-only Chainlink stub
+
+subgraph/
+  subgraph.yaml                manifest
+  schema.graphql               entities (Market, Stake, Proposal, Dispute,
+                               OracleVote, PriceResolution, Claim)
+  src/mapping.ts               AssemblyScript event handlers
 
 scripts/
   deploy.ts                    deploys both, wires registry slasher, dumps ABIs
@@ -72,14 +142,23 @@ frontend/
   src/utils/outcome.ts         enums + formatters
   src/components/
     MarketList.tsx             filter by phase
-    MarketDetail.tsx           per-phase action panels + claims
-    CreateMarket.tsx
+    MarketDetail.tsx           per-phase action panels + claims; renders
+                               IPFS metadata + Chainlink autoResolve button
+    CreateMarket.tsx           toggle Manual / Chainlink, pick preset feed,
+                               paste IPFS CID
     StakePanel.tsx             stake YES / NO
     ProposePanel.tsx           propose outcome + bond
     DisputePanel.tsx           dispute proposal + bond
     VotePanel.tsx              oracle dispute vote (gated by registry)
     OraclePage.tsx             register / top up / unregister as oracle
     WalletConnect.tsx
+  src/hooks/
+    useContract.ts             wallet + read/write for both contracts
+    useNotifications.ts        event-driven in-app notifications
+  src/utils/
+    outcome.ts                 enums + formatters
+    ipfs.ts                    CID validation + gateway URL + metadata fetch
+    priceFeeds.ts              Chainlink presets per chain
 ```
 
 ### Security
@@ -143,6 +222,40 @@ cp .env.example .env       # set VITE_MARKET_ADDRESS, VITE_REGISTRY_ADDRESS,
                            #     VITE_CHAIN_ID, VITE_RPC_URL
 npm run dev                # http://localhost:5173
 ```
+
+### The Graph subgraph
+
+```bash
+cd subgraph
+npm install
+# Set the deployed contract address + startBlock in subgraph.yaml first.
+npm run prepare        # copies the latest ABI from artifacts/
+npm run codegen
+npm run build
+graph auth --studio <DEPLOY_KEY>
+npm run deploy:studio
+```
+
+After it indexes, set `VITE_SUBGRAPH_URL` in the frontend `.env` so the UI
+queries the indexer instead of scanning logs. Example queries are in
+`subgraph/README.md`.
+
+### Push Protocol integration
+
+The in-app `useNotifications` hook gives instant feedback while the user has
+the dApp open. To extend it to true cross-device push:
+
+1. Register a Push Protocol channel via <https://app.push.org> (one-time;
+   testnets are free).
+2. Capture the same events server-side (e.g. a small Node listener that
+   subscribes to the contract's events) and forward them via
+   `@pushprotocol/restapi`'s `PushAPI.payloads.sendNotification` to channel
+   subscribers.
+3. Users opt in by subscribing to your channel from any Push-compatible
+   wallet. Notifications then arrive on iOS / Android / web push.
+
+The same pattern works with XMTP if you'd rather DM the user from a bot
+identity instead of broadcasting from a channel.
 
 ### Vercel
 
@@ -212,9 +325,9 @@ If nobody proposes within the proposal window the market expires as
 | Bonus | Status | Evidence |
 |-------|--------|----------|
 | Hosted public frontend | ✓ | Vercel URL above |
-| Coverage ≥ 90% | ✓ | `npx hardhat coverage` |
+| Coverage ≥ 90% | ✓ | `npx hardhat coverage` (32 tests pass) |
 | Gas optimisation report | ✓ | `REPORT_GAS=true npx hardhat test` |
-| Originality | ✓ | Two-contract optimistic-oracle resolution + stake-weighted oracle vote + permissionless propose/dispute |
+| Originality | ✓ | Hybrid resolution (Chainlink auto-resolve + optimistic oracle + stake-weighted vote) plus IPFS metadata, The Graph subgraph, and event-driven notifications |
 
 ### Gas / design notes
 

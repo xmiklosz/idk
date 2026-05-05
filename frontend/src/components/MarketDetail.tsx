@@ -16,10 +16,15 @@ import {
   countdown,
   shortAddr,
 } from "../utils/outcome";
+import { ipfsUrl, fetchMetadata, MarketMetadata } from "../utils/ipfs";
+
+const MARKET_TYPE_MANUAL = 0;
+const MARKET_TYPE_PRICE  = 1;
 
 interface FullMarket {
   creator: string;
   question: string;
+  metadataCID: string;
   tradingDeadline: bigint;
   proposalDeadline: bigint;
   disputeDeadline: bigint;
@@ -28,6 +33,7 @@ interface FullMarket {
   totalNoStake: bigint;
   creatorBond: bigint;
   state: number;
+  marketType: number;
   proposedOutcome: number;
   result: number;
   proposer: string;
@@ -39,6 +45,8 @@ interface FullMarket {
   winningVoteWeight: bigint;
   proposerBondClaimed: boolean;
   disputerBondClaimed: boolean;
+  priceFeed: string;
+  priceThreshold: bigint;
 }
 
 interface UserState {
@@ -66,6 +74,7 @@ export default function MarketDetail({ wallet }: { wallet: WalletState }) {
   const [user, setUser] = useState<UserState | null>(null);
   const [now, setNow] = useState(Math.floor(Date.now() / 1000));
   const [busy, setBusy] = useState(false);
+  const [metadata, setMetadata] = useState<MarketMetadata | null>(null);
 
   useEffect(() => {
     const i = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
@@ -78,6 +87,7 @@ export default function MarketDetail({ wallet }: { wallet: WalletState }) {
       setMarket({
         creator: m.creator,
         question: m.question,
+        metadataCID: m.metadataCID,
         tradingDeadline: m.tradingDeadline,
         proposalDeadline: m.proposalDeadline,
         disputeDeadline: m.disputeDeadline,
@@ -86,6 +96,7 @@ export default function MarketDetail({ wallet }: { wallet: WalletState }) {
         totalNoStake: m.totalNoStake,
         creatorBond: m.creatorBond,
         state: Number(m.state),
+        marketType: Number(m.marketType),
         proposedOutcome: Number(m.proposedOutcome),
         result: Number(m.result),
         proposer: m.proposer,
@@ -97,7 +108,14 @@ export default function MarketDetail({ wallet }: { wallet: WalletState }) {
         winningVoteWeight: m.winningVoteWeight,
         proposerBondClaimed: m.proposerBondClaimed,
         disputerBondClaimed: m.disputerBondClaimed,
+        priceFeed: m.priceFeed,
+        priceThreshold: m.priceThreshold,
       });
+      if (m.metadataCID) {
+        fetchMetadata(m.metadataCID).then(setMetadata).catch(() => setMetadata(null));
+      } else {
+        setMetadata(null);
+      }
       if (wallet.account) {
         const [y, n, c, v, vw, oc] = await Promise.all([
           wallet.market.yesStakes(marketId, wallet.account),
@@ -135,14 +153,18 @@ export default function MarketDetail({ wallet }: { wallet: WalletState }) {
 
   if (!market) return <p className="text-slate-400">Loading market…</p>;
 
+  const isPriceMarket = market.marketType === MARKET_TYPE_PRICE;
+
   // What action is currently available?
-  const canPropose = market.state === State.Trading && now >= Number(market.tradingDeadline) && now < Number(market.proposalDeadline);
-  const canDispute = market.state === State.Proposed && now < Number(market.disputeDeadline);
-  const canVote    = market.state === State.Disputed && now < Number(market.voteDeadline);
-  const canFinalize =
+  const canAutoResolve = isPriceMarket && market.state === State.Trading && now >= Number(market.tradingDeadline);
+  const canPropose = !isPriceMarket && market.state === State.Trading && now >= Number(market.tradingDeadline) && now < Number(market.proposalDeadline);
+  const canDispute = !isPriceMarket && market.state === State.Proposed && now < Number(market.disputeDeadline);
+  const canVote    = !isPriceMarket && market.state === State.Disputed && now < Number(market.voteDeadline);
+  const canFinalize = !isPriceMarket && (
     (market.state === State.Trading  && now >= Number(market.proposalDeadline)) ||
     (market.state === State.Proposed && now >= Number(market.disputeDeadline)) ||
-    (market.state === State.Disputed && now >= Number(market.voteDeadline));
+    (market.state === State.Disputed && now >= Number(market.voteDeadline))
+  );
 
   const isResolved = market.state === State.Resolved || market.state === State.Expired;
 
@@ -183,8 +205,39 @@ export default function MarketDetail({ wallet }: { wallet: WalletState }) {
               Market #{marketId.toString()} · created by {shortAddr(market.creator)}
             </div>
           </div>
-          <span className={`badge ${stateStyle[market.state]}`}>{stateLabel(market.state)}</span>
+          <div className="flex flex-col items-end gap-1">
+            <span className={`badge ${stateStyle[market.state]}`}>{stateLabel(market.state)}</span>
+            <span className={`badge ${isPriceMarket ? "bg-purple-500/20 text-purple-300" : "bg-cyan-500/20 text-cyan-300"}`}>
+              {isPriceMarket ? "Chainlink" : "Optimistic"}
+            </span>
+          </div>
         </div>
+
+        {(market.metadataCID || metadata) && (
+          <div className="mt-3 text-xs text-slate-400 border-t border-slate-700 pt-3 space-y-1">
+            {metadata?.description && <div>{metadata.description}</div>}
+            {market.metadataCID && (
+              <div className="font-mono break-all">
+                IPFS: <a className="text-brand-500 underline" target="_blank" rel="noreferrer"
+                         href={ipfsUrl(market.metadataCID)}>{market.metadataCID}</a>
+              </div>
+            )}
+            {metadata?.imageCID && (
+              <img src={ipfsUrl(metadata.imageCID)} alt="" className="mt-2 max-h-40 rounded border border-slate-700" />
+            )}
+            {metadata?.sources && metadata.sources.length > 0 && (
+              <div>Sources: {metadata.sources.map((s, i) => (
+                <a key={i} target="_blank" rel="noreferrer" className="text-brand-500 underline mr-2" href={s}>{i + 1}</a>
+              ))}</div>
+            )}
+          </div>
+        )}
+
+        {isPriceMarket && (
+          <div className="mt-3 text-xs text-slate-400 border-t border-slate-700 pt-3 font-mono break-all">
+            Feed: {market.priceFeed} · Threshold (raw): {market.priceThreshold.toString()}
+          </div>
+        )}
 
         <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
           <div>
@@ -244,6 +297,22 @@ export default function MarketDetail({ wallet }: { wallet: WalletState }) {
       <div className="grid md:grid-cols-2 gap-4">
         {market.state === State.Trading && now < Number(market.tradingDeadline) && (
           <StakePanel wallet={wallet} marketId={marketId} onDone={refresh} />
+        )}
+        {canAutoResolve && (
+          <div className="card">
+            <h3 className="font-semibold mb-2">Auto-resolve via Chainlink</h3>
+            <p className="text-sm text-slate-400 mb-3">
+              The trading window has closed. Anyone can read the price feed and
+              settle the market — no oracle vote needed.
+            </p>
+            <div className="text-xs text-slate-400 mb-3 font-mono break-all">
+              feed: {market.priceFeed}<br/>threshold: {market.priceThreshold.toString()}
+            </div>
+            <button className="btn-primary w-full" disabled={busy}
+                    onClick={() => call("autoResolve", "Auto-resolving")}>
+              Auto-resolve
+            </button>
+          </div>
         )}
         {canPropose && <ProposePanel wallet={wallet} marketId={marketId} onDone={refresh} />}
         {canDispute && <DisputePanel wallet={wallet} marketId={marketId} onDone={refresh} />}
