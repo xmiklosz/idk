@@ -33,9 +33,11 @@ Plus four web3 integrations layered on top:
 | Integration | Where | What it does |
 |-------------|-------|--------------|
 | **Chainlink Data Feeds** | `PredictionMarket.autoResolve` | Reads `latestRoundData` from any AggregatorV3 feed and resolves the market YES if `price > threshold`, else NO. Built-in 1h staleness guard; falls back to manual finalize if the feed is broken. |
+| **Chainlink Automation** | `PredictionMarket.checkUpkeep` / `performUpkeep` | The contract implements `AutomationCompatibleInterface`. Once a Chainlink Automation upkeep is registered against it, price-feed markets settle themselves the moment they're eligible — no human caller required. |
 | **IPFS** | `Market.metadataCID`, `frontend/utils/ipfs.ts` | Stores extended market metadata off-chain. The frontend fetches the JSON via a public gateway and renders description / image / sources. |
 | **The Graph** | `subgraph/` | Manifest + schema + AssemblyScript mappings indexing every contract event. Deploy it to The Graph Studio and point `VITE_SUBGRAPH_URL` at it. |
 | **Notifications** | `frontend/hooks/useNotifications.ts` | Subscribes to `Proposed`, `Disputed`, `MarketFinalized` events and shows an in-app toast when the connected user is involved. README documents how to forward those events to Push Protocol for true mobile push. |
+| **Frontend polish** | `Leaderboard`, theme toggle, search, share | Top-stakers/oracles leaderboard, dark/light theme toggle, market search, share-link button, live countdowns on every market card. |
 
 ## 1. Resolution model
 
@@ -240,6 +242,37 @@ After it indexes, set `VITE_SUBGRAPH_URL` in the frontend `.env` so the UI
 queries the indexer instead of scanning logs. Example queries are in
 `subgraph/README.md`.
 
+### Chainlink Automation integration
+
+The contract implements `AutomationCompatibleInterface`, so a Chainlink
+Automation upkeep can settle every price-feed market the moment its trading
+window closes:
+
+```solidity
+function checkUpkeep(bytes calldata checkData)
+    external view returns (bool upkeepNeeded, bytes memory performData);
+function performUpkeep(bytes calldata performData) external;
+```
+
+`checkUpkeep` is run off-chain by Chainlink's keeper network — gas there is
+free. It scans the markets in `[start, end)` (the optional `checkData`
+range, default `[0, marketCount)`), skips manual markets and stale feeds,
+and returns the first eligible price-market id. `performUpkeep` then calls
+`_autoResolve(marketId)` on-chain and wraps it in `nonReentrant`.
+
+To register an upkeep:
+1. Deploy the contract.
+2. Open <https://automation.chain.link>, connect the deploy wallet, and
+   create a Custom Logic upkeep against the deployed `PredictionMarket`
+   address.
+3. Top up its LINK balance. Done — the network now polls the contract on
+   every block and settles eligible markets automatically.
+
+If the LINK balance runs out or the upkeep is paused, the contract still
+allows a normal manual `autoResolve(marketId)` call by anyone, so the
+Automation integration is purely an upgrade — never a single point of
+failure.
+
 ### Push Protocol integration
 
 The in-app `useNotifications` hook gives instant feedback while the user has
@@ -325,9 +358,55 @@ If nobody proposes within the proposal window the market expires as
 | Bonus | Status | Evidence |
 |-------|--------|----------|
 | Hosted public frontend | ✓ | Vercel URL above |
-| Coverage ≥ 90% | ✓ | `npx hardhat coverage` (32 tests pass) |
-| Gas optimisation report | ✓ | `REPORT_GAS=true npx hardhat test` |
-| Originality | ✓ | Hybrid resolution (Chainlink auto-resolve + optimistic oracle + stake-weighted vote) plus IPFS metadata, The Graph subgraph, and event-driven notifications |
+| Coverage ≥ 90% | ✓ | `coverage-summary.txt` — 90.78% statements (37 tests passing) |
+| Gas optimisation report | ✓ | `gas-report.txt` (committed) |
+| Originality | ✓ | Hybrid resolution (Chainlink Data Feeds **+** Chainlink Automation **+** optimistic oracle **+** stake-weighted vote) plus IPFS metadata, The Graph subgraph, event-driven notifications, leaderboard, theme toggle, search/share/countdowns |
+
+### Coverage snapshot
+
+```
+File                                |  % Stmts | % Branch |  % Funcs |  % Lines |
+------------------------------------|----------|----------|----------|----------|
+ contracts/                         |    90.74 |    68.07 |    84.62 |    92.70 |
+  OracleRegistry.sol                |    76.32 |    55.26 |    71.43 |    82.46 |
+  PredictionMarket.sol              |    93.82 |    70.50 |    92.00 |    95.39 |
+ contracts/interfaces/              |   100.00 |   100.00 |   100.00 |   100.00 |
+ contracts/test/                    |   100.00 |   100.00 |   100.00 |   100.00 |
+------------------------------------|----------|----------|----------|----------|
+ All files                          |    90.78 |    68.07 |    86.05 |    92.96 |
+```
+
+Open `coverage/index.html` after running `npx hardhat coverage` for the
+line-by-line breakdown.
+
+### Gas snapshot (top entries from `gas-report.txt`)
+
+```
+Method            | Avg gas
+------------------|--------
+createMarket      | 169,051
+createPriceMarket | 251,684
+stakeYes / stakeNo|  74,506 /  74,550
+proposeOutcome    |  75,515
+disputeProposal   |  74,981
+voteOnDispute     | 135,978
+finalizeMarket    |  74,539  (35,986 in the no-vote/no-dispute fast path)
+autoResolve       |  52,767
+performUpkeep     |  52,928  (Chainlink Automation entry point)
+claimWinnings     |  70,135
+```
+
+Deployment cost of `PredictionMarket` is 2.80 M gas (4.7% of block limit).
+Notable optimisations:
+- `_stake` consolidates YES/NO branches so the cold-storage write path is
+  shared.
+- `_slashLosingVoters` caches the voters array length and uses storage
+  references rather than repeated mapping lookups.
+- `_autoResolve` is the hot path for both the manual `autoResolve` external
+  function and `performUpkeep` — refactoring it out of the external entry
+  saves the cost of a `.call` round-trip when Automation triggers.
+- The optimizer is enabled (`runs: 200`) and `viaIR: true` so the wider
+  `Market` struct compiles without stack-too-deep.
 
 ### Gas / design notes
 

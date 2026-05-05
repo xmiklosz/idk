@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ethers } from "ethers";
 import { WalletState } from "../hooks/useContract";
-import { State, outcomeLabel, stateLabel } from "../utils/outcome";
+import { State, outcomeLabel, stateLabel, countdown } from "../utils/outcome";
 
 interface MarketRow {
   id: bigint;
   question: string;
+  metadataCID: string;
+  marketType: number;
   tradingDeadline: bigint;
   proposalDeadline: bigint;
   totalYesStake: bigint;
@@ -26,7 +28,15 @@ const stateStyle: Record<number, string> = {
 export default function MarketList({ wallet }: { wallet: WalletState }) {
   const [markets, setMarkets] = useState<MarketRow[]>([]);
   const [filter, setFilter] = useState<"all" | "trading" | "resolving" | "resolved">("all");
+  const [type, setType] = useState<"all" | "manual" | "price">("all");
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(Math.floor(Date.now() / 1000));
+
+  useEffect(() => {
+    const i = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(i);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,6 +50,8 @@ export default function MarketList({ wallet }: { wallet: WalletState }) {
           rows.push({
             id: i,
             question: m.question,
+            metadataCID: m.metadataCID,
+            marketType: Number(m.marketType),
             tradingDeadline: m.tradingDeadline,
             proposalDeadline: m.proposalDeadline,
             totalYesStake: m.totalYesStake,
@@ -56,27 +68,49 @@ export default function MarketList({ wallet }: { wallet: WalletState }) {
     return () => { cancelled = true; };
   }, [wallet.market]);
 
-  const visible = markets.filter((m) => {
-    if (filter === "all") return true;
-    if (filter === "trading") return m.state === State.Trading;
-    if (filter === "resolving") return m.state === State.Proposed || m.state === State.Disputed;
-    return m.state === State.Resolved || m.state === State.Expired;
-  });
+  const visible = useMemo(() => {
+    return markets.filter((m) => {
+      if (filter !== "all") {
+        if (filter === "trading"   && m.state !== State.Trading) return false;
+        if (filter === "resolving" && m.state !== State.Proposed && m.state !== State.Disputed) return false;
+        if (filter === "resolved"  && m.state !== State.Resolved && m.state !== State.Expired) return false;
+      }
+      if (type === "manual" && m.marketType !== 0) return false;
+      if (type === "price"  && m.marketType !== 1) return false;
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        if (!m.question.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [markets, filter, type, search]);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-2xl font-semibold">Markets</h2>
         <div className="flex gap-2 flex-wrap">
           {(["all", "trading", "resolving", "resolved"] as const).map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 rounded-md text-sm capitalize ${
-                filter === f ? "bg-brand-600 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
-              }`}
-            >
+            <button key={f} onClick={() => setFilter(f)}
+              className={`px-3 py-1.5 rounded-md text-sm capitalize ${filter === f ? "bg-brand-600 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}>
               {f}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-3 items-center">
+        <input
+          className="input flex-1 min-w-[200px]"
+          placeholder="Search market questions…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <div className="flex gap-2">
+          {(["all", "manual", "price"] as const).map((t) => (
+            <button key={t} onClick={() => setType(t)}
+              className={`px-3 py-1.5 rounded-md text-sm capitalize ${type === t ? "bg-brand-600 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}>
+              {t === "price" ? "Chainlink" : t === "manual" ? "Optimistic" : "All types"}
             </button>
           ))}
         </div>
@@ -85,7 +119,7 @@ export default function MarketList({ wallet }: { wallet: WalletState }) {
       {loading && <p className="text-slate-400">Loading markets…</p>}
       {!loading && visible.length === 0 && (
         <p className="text-slate-400">
-          No markets yet. <Link to="/create" className="text-brand-500 underline">Create one</Link>.
+          No matching markets. <Link to="/create" className="text-brand-500 underline">Create one</Link>.
         </p>
       )}
 
@@ -93,14 +127,21 @@ export default function MarketList({ wallet }: { wallet: WalletState }) {
         {visible.map((m) => {
           const total = m.totalYesStake + m.totalNoStake;
           const yesPct = total === 0n ? 50 : Number((m.totalYesStake * 100n) / total);
+          const showCountdown = m.state === State.Trading;
           return (
             <Link key={m.id.toString()} to={`/market/${m.id}`}
                   className="card hover:border-brand-500 transition">
               <div className="flex items-start justify-between gap-2">
                 <h3 className="font-semibold leading-snug">{m.question}</h3>
-                <span className={`badge ${stateStyle[m.state]}`}>{stateLabel(m.state)}</span>
+                <div className="flex flex-col items-end gap-1">
+                  <span className={`badge ${stateStyle[m.state]}`}>{stateLabel(m.state)}</span>
+                  <span className={`badge ${m.marketType === 1 ? "bg-purple-500/20 text-purple-300" : "bg-cyan-500/20 text-cyan-300"}`}>
+                    {m.marketType === 1 ? "Chainlink" : "Optimistic"}
+                  </span>
+                </div>
               </div>
               <div className="mt-3 text-sm text-slate-400">Market #{m.id.toString()}</div>
+
               <div className="mt-3">
                 <div className="flex justify-between text-xs text-slate-300 mb-1">
                   <span>YES {yesPct}%</span><span>NO {100 - yesPct}%</span>
@@ -109,8 +150,12 @@ export default function MarketList({ wallet }: { wallet: WalletState }) {
                   <div className="h-full bg-emerald-500" style={{ width: `${yesPct}%` }} />
                 </div>
               </div>
-              <div className="mt-3 text-xs text-slate-400">
-                Total staked: {ethers.formatEther(total)} ETH
+
+              <div className="mt-3 text-xs text-slate-400 flex items-center justify-between">
+                <span>Total: {ethers.formatEther(total)} ETH</span>
+                {showCountdown && (
+                  <span>Trading closes in <span className="text-slate-200">{countdown(m.tradingDeadline, now)}</span></span>
+                )}
               </div>
               {(m.state === State.Resolved || m.state === State.Expired) && (
                 <div className="mt-2 text-sm">

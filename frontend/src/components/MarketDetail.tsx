@@ -193,8 +193,24 @@ export default function MarketDetail({ wallet }: { wallet: WalletState }) {
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="flex items-center justify-between">
         <Link to="/" className="text-brand-500 text-sm">&larr; Back to markets</Link>
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              if ((navigator as any).share) {
+                await (navigator as any).share({ title: market.question, url: window.location.href });
+              } else {
+                await navigator.clipboard.writeText(window.location.href);
+                toast.success("Link copied");
+              }
+            } catch {}
+          }}
+          className="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300"
+        >
+          Share
+        </button>
       </div>
 
       <div className="card">

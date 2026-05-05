@@ -582,5 +582,94 @@ describe("PredictionMarket — Optimistic Oracle", () => {
       await market.autoResolve(0n);
       await expect(market.autoResolve(0n)).to.be.revertedWith("wrong state");
     });
+
+    // -----------------------------------------------------------------
+    // Chainlink Automation
+    // -----------------------------------------------------------------
+    describe("Chainlink Automation", () => {
+      it("checkUpkeep is false while trading is open", async () => {
+        const { market } = await deployStack();
+        const [creator] = await ethers.getSigners();
+        const feed = await deployFeed(3500n * 10n ** 8n);
+        await createPriceMarket(market, creator, feed, 3000n * 10n ** 8n);
+        const [needed] = await market.checkUpkeep("0x");
+        expect(needed).to.equal(false);
+      });
+
+      it("checkUpkeep is true once trading deadline passes; performUpkeep resolves", async () => {
+        const { market } = await deployStack();
+        const [creator] = await ethers.getSigners();
+        const feed = await deployFeed(3500n * 10n ** 8n);
+        const { tradingDeadline } = await createPriceMarket(market, creator, feed, 3000n * 10n ** 8n);
+        await time.increaseTo(tradingDeadline + 1);
+        await feed.setAnswer(3500n * 10n ** 8n);
+
+        const [needed, data] = await market.checkUpkeep("0x");
+        expect(needed).to.equal(true);
+        const decoded = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], data);
+        expect(decoded[0]).to.equal(0n);
+
+        await expect(market.performUpkeep(data))
+          .to.emit(market, "MarketFinalized").withArgs(0n, Outcome.YES);
+
+        const m = await market.markets(0n);
+        expect(m.state).to.equal(State.Resolved);
+      });
+
+      it("checkUpkeep skips manual markets and stale feeds", async () => {
+        const { market } = await deployStack();
+        const [creator] = await ethers.getSigners();
+        // 1) manual market - never picked up
+        await createDefaultMarket(market, creator);
+        // 2) price market with a stale feed - skipped
+        const stale = await deployFeed(3500n * 10n ** 8n);
+        await createPriceMarket(market, creator, stale, 3000n * 10n ** 8n);
+        // 3) price market with a fresh feed - picked up
+        const fresh = await deployFeed(3500n * 10n ** 8n);
+        await createPriceMarket(market, creator, fresh, 3000n * 10n ** 8n);
+
+        const m1 = await market.markets(1n);
+        await time.increaseTo(Number(m1.tradingDeadline) + 1);
+        await stale.setUpdatedAt(1n);            // mark feed 1 stale
+        await fresh.setAnswer(3500n * 10n ** 8n); // refresh feed 2
+
+        const [needed, data] = await market.checkUpkeep("0x");
+        expect(needed).to.equal(true);
+        const [picked] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], data);
+        expect(picked).to.equal(2n); // skipped 0 (manual) and 1 (stale)
+      });
+
+      it("checkUpkeep honors a [start,end) range in checkData", async () => {
+        const { market } = await deployStack();
+        const [creator] = await ethers.getSigners();
+        const f1 = await deployFeed(3500n * 10n ** 8n);
+        const f2 = await deployFeed(3500n * 10n ** 8n);
+        const m1 = await createPriceMarket(market, creator, f1, 3000n * 10n ** 8n);
+        await createPriceMarket(market, creator, f2, 3000n * 10n ** 8n);
+
+        await time.increaseTo(m1.tradingDeadline + 1);
+        await f1.setAnswer(3500n * 10n ** 8n);
+        await f2.setAnswer(3500n * 10n ** 8n);
+
+        // Restrict scan to [1, 2): only market 1 considered.
+        const range = ethers.AbiCoder.defaultAbiCoder().encode(["uint256", "uint256"], [1, 2]);
+        const [needed, data] = await market.checkUpkeep(range);
+        expect(needed).to.equal(true);
+        const [picked] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], data);
+        expect(picked).to.equal(1n);
+      });
+
+      it("performUpkeep is non-reentrant (cannot resolve twice)", async () => {
+        const { market } = await deployStack();
+        const [creator] = await ethers.getSigners();
+        const feed = await deployFeed(3500n * 10n ** 8n);
+        const { tradingDeadline } = await createPriceMarket(market, creator, feed, 3000n * 10n ** 8n);
+        await time.increaseTo(tradingDeadline + 1);
+        await feed.setAnswer(3500n * 10n ** 8n);
+        const data = ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [0]);
+        await market.performUpkeep(data);
+        await expect(market.performUpkeep(data)).to.be.revertedWith("wrong state");
+      });
+    });
   });
 });

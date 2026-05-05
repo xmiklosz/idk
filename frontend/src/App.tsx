@@ -1,14 +1,17 @@
 import { Link, Route, Routes } from "react-router-dom";
 import { useWallet, MARKET_ADDRESS, REGISTRY_ADDRESS, CHAIN_ID } from "./hooks/useContract";
 import { useNotifications } from "./hooks/useNotifications";
+import { useTheme } from "./hooks/useTheme";
 import WalletConnect from "./components/WalletConnect";
 import MarketList from "./components/MarketList";
 import MarketDetail from "./components/MarketDetail";
 import CreateMarket from "./components/CreateMarket";
 import OraclePage from "./components/OraclePage";
+import Leaderboard from "./components/Leaderboard";
 
 export default function App() {
   const wallet = useWallet();
+  const { theme, toggle } = useTheme();
   useNotifications(wallet);
 
   return (
@@ -20,8 +23,19 @@ export default function App() {
             <Link to="/" className="text-sm text-slate-300 hover:text-white">Markets</Link>
             <Link to="/create" className="text-sm text-slate-300 hover:text-white">Create</Link>
             <Link to="/oracles" className="text-sm text-slate-300 hover:text-white">Oracles</Link>
+            <Link to="/leaderboard" className="text-sm text-slate-300 hover:text-white">Leaderboard</Link>
           </div>
-          <WalletConnect wallet={wallet} />
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={toggle}
+              className="text-sm px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300"
+              title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            >
+              {theme === "dark" ? "Light" : "Dark"}
+            </button>
+            <WalletConnect wallet={wallet} />
+          </div>
         </div>
       </header>
 
@@ -32,13 +46,14 @@ export default function App() {
             <Route path="/create" element={<CreateMarket wallet={wallet} />} />
             <Route path="/market/:id" element={<MarketDetail wallet={wallet} />} />
             <Route path="/oracles" element={<OraclePage wallet={wallet} />} />
+            <Route path="/leaderboard" element={<Leaderboard wallet={wallet} />} />
           </Routes>
         </div>
       </main>
 
       <footer className="border-t border-slate-800 mt-10">
         <div className="max-w-5xl mx-auto px-4 py-4 text-xs text-slate-500 flex flex-wrap gap-3 justify-between">
-          <span>DMBLOCK Assignment 2 — Optimistic Oracle Prediction Market</span>
+          <span>DMBLOCK Assignment 2 — Hybrid Optimistic + Chainlink Prediction Market</span>
           <span className="font-mono">
             chain {CHAIN_ID} · market {MARKET_ADDRESS.slice(0, 6)}…{MARKET_ADDRESS.slice(-4)}
             {" "}· registry {REGISTRY_ADDRESS.slice(0, 6)}…{REGISTRY_ADDRESS.slice(-4)}

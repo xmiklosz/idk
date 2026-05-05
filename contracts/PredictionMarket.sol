@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./OracleRegistry.sol";
 import "./interfaces/AggregatorV3Interface.sol";
+import "./interfaces/AutomationCompatibleInterface.sol";
 
 /// @title  Prediction market with two resolution paths
 /// @notice Hybrid Polymarket / UMA-style market:
@@ -13,8 +14,11 @@ import "./interfaces/AggregatorV3Interface.sol";
 ///             of registered oracles.
 ///           * PRICE markets resolve trustlessly by reading a Chainlink
 ///             AggregatorV3 feed at trading-close: YES if the feed price is
-///             strictly greater than the threshold, otherwise NO.
-contract PredictionMarket is ReentrancyGuard {
+///             strictly greater than the threshold, otherwise NO. The contract
+///             also implements `AutomationCompatibleInterface` so a Chainlink
+///             Automation upkeep can settle these markets the moment they're
+///             eligible — no human caller required.
+contract PredictionMarket is ReentrancyGuard, AutomationCompatibleInterface {
     enum Outcome    { UNRESOLVED, YES, NO, INVALID }
     enum State      { Trading, Proposed, Disputed, Resolved, Expired }
     enum MarketType { Manual, PriceFeed }
@@ -178,6 +182,10 @@ contract PredictionMarket is ReentrancyGuard {
     /// @notice Resolve a price-feed market trustlessly using its Chainlink feed.
     ///         Callable by anyone after `tradingDeadline`.
     function autoResolve(uint256 marketId) external nonReentrant {
+        _autoResolve(marketId);
+    }
+
+    function _autoResolve(uint256 marketId) internal {
         Market storage m = markets[marketId];
         require(m.creator != address(0), "no market");
         require(m.marketType == MarketType.PriceFeed, "not price market");
@@ -195,6 +203,63 @@ contract PredictionMarket is ReentrancyGuard {
 
         emit PriceMarketResolved(marketId, m.priceFeed, price, m.priceThreshold, r);
         emit MarketFinalized(marketId, r);
+    }
+
+    // ---------------------------------------------------------------------
+    // Chainlink Automation hooks
+    //
+    // `checkUpkeep` is run off-chain by the Automation network on every
+    // block; gas there is irrelevant. It scans for the first eligible price
+    // market — one whose trading window has closed and whose feed has fresh
+    // data — and returns its id. `performUpkeep` is then executed on-chain
+    // by the network's keepers to settle it.
+    //
+    // The `checkData` argument lets a single registered upkeep restrict its
+    // scan to a [start, end) window of market ids; pass empty bytes to scan
+    // everything. This keeps gas-free off-chain calls bounded as the number
+    // of markets grows.
+    // ---------------------------------------------------------------------
+
+    function checkUpkeep(bytes calldata checkData)
+        external
+        view
+        override
+        returns (bool upkeepNeeded, bytes memory performData)
+    {
+        (uint256 start, uint256 end) = _decodeRange(checkData);
+        uint256 last = end > marketCount ? marketCount : end;
+
+        for (uint256 i = start; i < last; i++) {
+            Market storage m = markets[i];
+            if (m.marketType != MarketType.PriceFeed) continue;
+            if (m.state != State.Trading)             continue;
+            if (block.timestamp < m.tradingDeadline)  continue;
+
+            // Probe the feed; reject stale or absent data so we don't burn
+            // gas on a perform that would just revert.
+            try AggregatorV3Interface(m.priceFeed).latestRoundData() returns (
+                uint80, int256, uint256, uint256 updatedAt, uint80
+            ) {
+                if (updatedAt == 0) continue;
+                if (block.timestamp - updatedAt > PRICE_STALENESS) continue;
+                return (true, abi.encode(i));
+            } catch {
+                continue;
+            }
+        }
+        return (false, "");
+    }
+
+    function performUpkeep(bytes calldata performData) external override nonReentrant {
+        uint256 marketId = abi.decode(performData, (uint256));
+        _autoResolve(marketId);
+    }
+
+    function _decodeRange(bytes calldata checkData) internal view returns (uint256 start, uint256 end) {
+        if (checkData.length == 0) {
+            return (0, marketCount);
+        }
+        (start, end) = abi.decode(checkData, (uint256, uint256));
     }
 
     // ---------------------------------------------------------------------

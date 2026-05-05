@@ -1,0 +1,20 @@
+Coverage report (npx hardhat coverage)
+======================================
+
+37 passing tests.
+
+------------------------------------|----------|----------|----------|----------|
+File                                |  % Stmts | % Branch |  % Funcs |  % Lines |
+------------------------------------|----------|----------|----------|----------|
+ contracts/                         |    90.74 |    68.07 |    84.62 |     92.70|
+  OracleRegistry.sol                |    76.32 |    55.26 |    71.43 |    82.46 |
+  PredictionMarket.sol              |    93.82 |    70.50 |    92.00 |    95.39 |
+ contracts/interfaces/              |   100.00 |   100.00 |   100.00 |   100.00 |
+ contracts/test/                    |   100.00 |   100.00 |   100.00 |   100.00 |
+------------------------------------|----------|----------|----------|----------|
+ All files                          |    90.78 |    68.07 |    86.05 |    92.96 |
+------------------------------------|----------|----------|----------|----------|
+
+Statement coverage of 90.78% clears the bonus threshold of 90%.
+The HTML report is generated to ./coverage/index.html — open it locally for
+line-by-line details.

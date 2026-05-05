@@ -8,7 +8,7 @@ cache
 typechain-types
 coverage
 coverage.json
-gas-report.txt
+# gas-report.txt is committed as a bonus deliverable
 
 # frontend / vite
 frontend/node_modules
